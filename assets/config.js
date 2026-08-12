@@ -9,6 +9,6 @@
  * service_role key 는 절대 여기에 넣지 말 것 — 모든 권한을 우회한다.
  */
 window.TEAM_SYNC_CONFIG = {
-  supabaseUrl: "https://<프로젝트ID>.supabase.co",
-  supabasePublishableKey: "<publishable key 붙여넣기>"
+  supabaseUrl: "https://ftkoajcjsvkmfcmwkafq.supabase.co",
+  supabasePublishableKey: "sb_publishable_J7YQvM7O4Pmr9mvw0XLT5w_F3flko9P"
 };
