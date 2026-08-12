@@ -11,23 +11,9 @@
 
 -- ----------------------------------------------------------------------------
 -- 0. 공통 헬퍼
+--    (테이블을 참조하는 is_payroll_manager 는 테이블 생성 뒤인 1-2 절에 있다.
+--     language sql 함수는 생성 시점에 본문을 검증하므로 순서를 지켜야 한다.)
 -- ----------------------------------------------------------------------------
-
--- 월급관리자 여부 판정.
--- SECURITY DEFINER 로 두어야 team_roles 의 RLS 정책이 자기 자신을 다시 호출하는
--- 무한 재귀를 피할 수 있다.
-create or replace function public.is_payroll_manager(uid uuid default auth.uid())
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1 from public.team_roles
-    where user_id = uid and payroll_manager = true
-  );
-$$;
 
 -- updated_at 자동 갱신 트리거
 create or replace function public.touch_updated_at()
@@ -141,6 +127,27 @@ create table if not exists public.holidays (
   holiday_date date primary key,
   name         text not null
 );
+
+
+-- ----------------------------------------------------------------------------
+-- 1-2. 권한 판정 헬퍼 (team_roles 테이블이 만들어진 뒤에 정의해야 한다)
+--
+-- SECURITY DEFINER 로 두어야 team_roles 를 참조하는 정책이 다시 team_roles 의
+-- 정책을 평가하는 무한 재귀를 피할 수 있다.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.is_payroll_manager(uid uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.team_roles
+    where user_id = uid and payroll_manager = true
+  );
+$$;
 
 
 -- ----------------------------------------------------------------------------
