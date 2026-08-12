@@ -1,0 +1,371 @@
+function renderSettings(){
+  Object.keys(defaultSettings).forEach(k=>{
+    const el=$(k);
+    if(!el) return;
+    if(el.tagName==="SELECT"){
+      el.value=data.settings[k]??defaultSettings[k];
+    }else if(typeof defaultSettings[k]==="number"){
+      el.value=Number(data.settings[k]||0) || "";
+    }else{
+      el.value=data.settings[k]??defaultSettings[k];
+    }
+  });
+  renderPayBreakdown();
+}
+
+function renderAll(){
+  renderAnnualCalendar();
+  renderCalendar();
+  renderSummary();
+  renderPayBreakdown();
+  renderLeavePage();
+  const dailyPage=$("dailyLogPage");
+  if(dailyPage?.classList.contains("active")) renderDailyLogPage();
+  const weeklyPage=$("weeklyLogPage");
+  if(weeklyPage?.classList.contains("active")) renderWeeklyLogPage();
+  const manualPage=$("manualPage");
+  if(manualPage?.classList.contains("active")) renderManualPage();
+  const salaryPage=$("salaryPage");
+  if(salaryPage?.classList.contains("active")) loadPayrollManagerPanel();
+}
+
+if($("leaveRequestDate")&&!$("leaveRequestDate").value)$("leaveRequestDate").value=dateKey(new Date());
+$("saveLeaveSettings").addEventListener("click",()=>{
+  data.settings.totalAnnualLeave=Number($("totalAnnualLeave").value||0);
+  persist();
+  renderLeavePage();
+  alert("올해 총 연차를 저장했어.");
+});
+
+$("saveSettings").addEventListener("click",()=>{
+  const s={...data.settings};
+  Object.keys(defaultSettings).forEach(k=>{
+    const el=$(k);
+    if(!el) return;
+    if(el.tagName==="SELECT"){
+      s[k]=el.value;
+    }else if(typeof defaultSettings[k]==="number"){
+      s[k]=Number(el.value||0);
+    }else{
+      s[k]=el.value;
+    }
+  });
+  data.settings={...defaultSettings,...s};
+  data.settings.dailyCap=3;
+  data.settings.regularEndTime="18:00";
+  data.settings.overtimeStartTime="19:00";
+  data.settings.overtimeCutoffTime="22:00";
+  data.settings.payDay=Math.min(31,Math.max(1,Number(data.settings.payDay||25)));
+  persist();
+  renderAll();
+  updateBranding();
+  if(teamCloud.user) syncMySalaryProfile().then(()=>{if(teamCloud.isPayrollManager)loadPayrollManagerPanel();});
+  alert("급여·공제·퇴직연금 설정을 저장했어.");
+});
+
+
+
+
+$("prevWeeklyDate").addEventListener("click",()=>{
+  weeklyAnchorDate=startOfWeek(weeklyAnchorDate);
+  weeklyAnchorDate.setDate(weeklyAnchorDate.getDate()-7);
+  renderWeeklyLogPage();
+});
+
+$("nextWeeklyDate").addEventListener("click",()=>{
+  weeklyAnchorDate=startOfWeek(weeklyAnchorDate);
+  weeklyAnchorDate.setDate(weeklyAnchorDate.getDate()+7);
+  renderWeeklyLogPage();
+});
+
+$("thisWeekBtn").addEventListener("click",()=>{
+  weeklyAnchorDate=startOfWeek(new Date());
+  renderWeeklyLogPage();
+});
+
+$("prevDailyDate").addEventListener("click",()=>{
+  const d=new Date(dailyLogDate+"T00:00:00");
+  d.setDate(d.getDate()-1);
+  dailyLogDate=dateKey(d);
+  renderDailyLogPage();
+});
+$("nextDailyDate").addEventListener("click",()=>{
+  const d=new Date(dailyLogDate+"T00:00:00");
+  d.setDate(d.getDate()+1);
+  dailyLogDate=dateKey(d);
+  renderDailyLogPage();
+});
+$("todayDailyDate").addEventListener("click",()=>{
+  dailyLogDate=dateKey(new Date());
+  renderDailyLogPage();
+});
+$("dailyToSchedule").addEventListener("click",()=>{
+  const d=new Date(dailyLogDate+"T00:00:00");
+  viewDate=new Date(d.getFullYear(),d.getMonth(),1);
+  renderAll();
+  const monthlyBtn=document.querySelector('[data-page="schedulePage"]');
+  if(monthlyBtn) monthlyBtn.click();
+});
+$("saveDailyLog").addEventListener("click",saveMyDailyLog);
+
+$("sendMagicLink").addEventListener("click",async()=>{
+  const result=await sendTeamMagicLink($("teamEmail").value);
+  setDailyMessage(result.message,!result.ok);
+});
+$("signOutTeam").addEventListener("click",async()=>{
+  if(teamCloud.client) await teamCloud.client.auth.signOut();
+  teamCloud.user=null;
+  teamCloud.myLoggedDates=new Set();
+  teamCloud.myOvertimeByDate=new Map();
+  teamCloud.myWorkStatusByDate=new Map();
+  renderCalendar();
+  renderAnnualCalendar();
+  renderDailyLogPage();
+});
+
+$("prevYear").addEventListener("click",()=>{
+  annualYear--;
+  renderAnnualCalendar();
+});
+$("nextYear").addEventListener("click",()=>{
+  annualYear++;
+  renderAnnualCalendar();
+});
+$("thisYearBtn").addEventListener("click",()=>{
+  annualYear=new Date().getFullYear();
+  renderAnnualCalendar();
+});
+
+$("prevMonth").addEventListener("click",async()=>{
+  viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()-1,1);
+  if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates();
+  renderAll();
+});
+$("nextMonth").addEventListener("click",async()=>{
+  viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()+1,1);
+  if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates();
+  renderAll();
+});
+$("todayBtn").addEventListener("click",async()=>{
+  const now=new Date();
+  viewDate=new Date(now.getFullYear(),now.getMonth(),1);
+  if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates(viewDate.getFullYear());
+  renderAll();
+});
+
+$("exportBtn").addEventListener("click",()=>{
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`회사대시보드_백업_${dateKey(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$("importBtn").addEventListener("click",()=>$("importFile").click());
+$("importFile").addEventListener("change",async(e)=>{
+  const file=e.target.files?.[0];
+  if(!file)return;
+  try{
+    const obj=JSON.parse(await file.text());
+    if(!obj.settings||!obj.records)throw new Error("형식 오류");
+    data={
+      settings:{...defaultSettings,...obj.settings},
+      records:obj.records,
+      dailyLogs:obj.dailyLogs||{},
+      weeklyMemos:obj.weeklyMemos||{}
+    };
+    persist();
+    renderSettings();
+    renderAll();
+    alert("백업을 불러왔어.");
+  }catch(err){
+    alert("올바른 백업 파일이 아니야.");
+  }
+  e.target.value="";
+});
+
+
+
+function updateBranding(){
+  const name=(data.settings.userName||"").trim();
+  const company=(data.settings.companyName||"").trim();
+
+  $("appTitle").textContent = name ? `${name}님의 회사생활 대시보드` : "회사생활 대시보드";
+  $("appSubtitle").textContent = company
+    ? `${company} · 일정 · 팀 업무일지 · 야근 · 급여 · 연차 관리`
+    : "내 일정 · 팀 업무일지 · 야근 · 급여 · 연차를 한 곳에서 관리해.";
+}
+
+function openProfileModal(firstVisit=false){
+  $("profileUserName").value=data.settings.userName||"";
+  $("profileCompanyName").value=data.settings.companyName||"";
+  $("profileJobTitle").value=data.settings.jobTitle||"";
+  $("profileAnnualLeave").value=Number(data.settings.totalAnnualLeave||0) || "";
+  $("profileBasicSalary").value=Number(data.settings.basicSalary||0) || "";
+  $("profileOvertimeRate").value=Number(data.settings.hourlyOvertime||0) || "";
+
+  $("profileModalTitle").textContent=firstVisit ? "내 대시보드 시작하기" : "내 정보";
+  $("closeProfileModal").style.display=firstVisit ? "none" : "inline-block";
+  $("profileDangerZone").style.display=firstVisit ? "none" : "block";
+
+  $("profileSyncBox").style.display=firstVisit ? "none" : "block";
+  $("restoreSyncBackup").style.display=localStorage.getItem(SYNC_BACKUP_KEY) ? "inline-block" : "none";
+  setSyncStatus(teamCloud.user
+    ? `${teamCloud.user.email} 계정과 동기화 중`
+    : "팀 로그인 전 · 이 브라우저에만 저장돼");
+  $("profileModal").classList.add("open");
+  $("profileModal").setAttribute("aria-hidden","false");
+}
+
+function closeProfileModal(){
+  $("profileModal").classList.remove("open");
+  $("profileModal").setAttribute("aria-hidden","true");
+}
+
+
+
+$("teamInfoBtn").addEventListener("click",openTeamModal);
+$("closeTeamModal").addEventListener("click",closeTeamModal);
+$("teamModal").addEventListener("click",e=>{if(e.target===$("teamModal"))closeTeamModal();});
+$("saveTeamName").addEventListener("click",async()=>{if(!teamCloud.user||!teamCloud.isPayrollManager)return;const n=$("teamNameInput").value.trim();if(!n)return;const{error:e}=await teamCloud.client.from("team_settings").update({team_name:n,updated_at:new Date().toISOString(),updated_by:teamCloud.user.id}).eq("id",1);if(e){alert("팀 이름 저장 실패");return;}teamCloud.teamName=n;updateTeamInfoButton();await openTeamModal();});
+$("uploadManualFile").addEventListener("click",uploadManualFile);
+$("refreshManualFiles").addEventListener("click",loadManualFiles);
+$("submitLeaveRequest").addEventListener("click",submitLeaveRequest);
+
+$("globalAuthBtn").addEventListener("click",openLoginModal);
+$("closeLoginModal").addEventListener("click",closeLoginModal);
+
+$("loginModal").addEventListener("click",(e)=>{
+  if(e.target===$("loginModal")) closeLoginModal();
+});
+
+$("globalSendMagicLink").addEventListener("click",async()=>{
+  const btn=$("globalSendMagicLink");
+  btn.disabled=true;
+  btn.textContent="보내는 중...";
+  setGlobalLoginStatus("로그인 메일을 보내는 중이야.");
+
+  const result=await sendTeamMagicLink($("globalTeamEmail").value);
+  setGlobalLoginStatus(result.message,result.ok?"success":"error");
+
+  btn.disabled=false;
+  btn.textContent="로그인 링크 받기";
+});
+
+$("globalTeamEmail").addEventListener("keydown",(e)=>{
+  if(e.key==="Enter"){
+    e.preventDefault();
+    $("globalSendMagicLink").click();
+  }
+});
+
+$("globalSignOut").addEventListener("click",async()=>{
+  if(teamCloud.client) await teamCloud.client.auth.signOut();
+  teamCloud.user=null;
+  updateSyncUi();
+  closeLoginModal();
+});
+
+$("profileBtn").addEventListener("click",()=>openProfileModal(false));
+$("closeProfileModal").addEventListener("click",closeProfileModal);
+$("restoreSyncBackup").addEventListener("click",restorePreSyncBackup);
+
+$("saveProfile").addEventListener("click",()=>{
+  data.settings.userName=$("profileUserName").value.trim();
+  data.settings.companyName=$("profileCompanyName").value.trim();
+  data.settings.jobTitle=$("profileJobTitle").value;
+  data.settings.totalAnnualLeave=Number($("profileAnnualLeave").value||0);
+  data.settings.basicSalary=Number($("profileBasicSalary").value||0);
+  data.settings.hourlyOvertime=Number($("profileOvertimeRate").value||0);
+  data.settings.onboardingDone=true;
+  persist();
+  renderSettings();
+  renderAll();
+  updateBranding();
+  closeProfileModal();
+  if(teamCloud.user){
+    Promise.all([syncMyCloudProfile(),syncMySalaryProfile(),loadTeamMeta()]).then(()=>{
+      if($("dailyLogPage")?.classList.contains("active")) renderDailyLogPage();
+      if($("weeklyLogPage")?.classList.contains("active")) renderWeeklyLogPage();
+      if($("salaryPage")?.classList.contains("active")) loadPayrollManagerPanel();
+    });
+  }
+});
+
+$("resetAllData").addEventListener("click",async()=>{
+  const scope=teamCloud.user
+    ? "이 브라우저와 클라우드 계정에 저장된"
+    : "이 브라우저에 저장된";
+  const ok=confirm(`${scope} 일정, 급여, 연차 등 모든 데이터를 삭제할까? 이 작업은 되돌릴 수 없어.`);
+  if(!ok) return;
+
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(OLD_STORAGE_KEY);
+  localStorage.removeItem("myCompanyDashboard_lastPage");
+  localStorage.removeItem(SYNC_BACKUP_KEY);
+
+  // 클라우드에도 지워야 다음 로그인 때 되살아나지 않는다.
+  if(teamCloud.client && teamCloud.user){
+    await teamCloud.client.from("user_state").delete().eq("user_id",teamCloud.user.id);
+    await teamCloud.client.from("salary_profiles").delete().eq("user_id",teamCloud.user.id);
+  }
+
+  data=structuredClone(defaultData);
+  viewDate=new Date();
+  viewDate.setDate(1);
+  annualYear=new Date().getFullYear();
+  renderSettings();
+  renderAll();
+  updateBranding();
+  openProfileModal(true);
+});
+
+
+// 상단 카테고리 탭 전환
+document.querySelectorAll(".top-tab").forEach(btn=>{
+  btn.addEventListener("click",async()=>{
+    const pageId=btn.dataset.page;
+    document.querySelectorAll(".top-tab").forEach(b=>b.classList.toggle("active",b===btn));
+    document.querySelectorAll(".page-view").forEach(p=>p.classList.toggle("active",p.id===pageId));
+
+    // 월 이동 버튼은 월간일정표에서만 표시
+    $("monthNav").style.display = pageId==="schedulePage" ? "flex" : "none";
+
+    // 마지막으로 열어본 페이지 기억
+    localStorage.setItem("myCompanyDashboard_lastPage",pageId);
+
+    if(pageId==="dailyLogPage") await renderDailyLogPage();
+    if(pageId==="weeklyLogPage") await renderWeeklyLogPage();
+    if(pageId==="manualPage") await renderManualPage();
+    if(pageId==="leavePage" && teamCloud.configured && teamCloud.user) await loadLeaveRequests();
+
+    if(pageId==="salaryPage" && teamCloud.configured && teamCloud.user){
+      await loadTeamMeta();
+      await loadPayrollManagerPanel();
+      const sourceMonth=payrollOvertimeMonth();
+      await loadMyLoggedDates(sourceMonth.getFullYear());
+      renderSummary();
+      renderPayBreakdown();
+    }
+  });
+});
+
+const lastPage=localStorage.getItem("myCompanyDashboard_lastPage");
+if(["annualPage","schedulePage","dailyLogPage","weeklyLogPage","manualPage","salaryPage","leavePage"].includes(lastPage)){
+  const savedBtn=document.querySelector(`[data-page="${lastPage}"]`);
+  if(savedBtn) savedBtn.click();
+}else{
+  const annualBtn=document.querySelector('[data-page="annualPage"]');
+  if(annualBtn) annualBtn.click();
+}
+
+renderSettings();
+renderAll();
+updateBranding();
+
+if(!data.settings.onboardingDone){
+  openProfileModal(true);
+}
+initTeamCloud();

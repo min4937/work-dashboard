@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>회사생활 대시보드</title>
+<link rel="stylesheet" href="./assets/styles.css" />
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1 id="appTitle">회사생활 대시보드</h1>
+      <div class="sub" id="appSubtitle">내 일정 · 팀 업무일지 · 야근 · 급여 · 연차를 한 곳에서 관리해.</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="icon-btn" id="teamInfoBtn">팀 정보</button>
+      <div class="global-auth-wrap">
+        <span class="global-auth-state" id="globalAuthState">팀 로그인 전</span>
+        <button class="icon-btn" id="globalAuthBtn">팀 로그인</button>
+      </div>
+      <button class="icon-btn" id="profileBtn">내 정보</button>
+      <div class="month-nav" id="monthNav" style="display:none">
+      <button class="icon-btn" id="prevMonth">←</button>
+      <div class="month-label" id="monthLabel"></div>
+      <button class="icon-btn" id="nextMonth">→</button>
+      <button class="icon-btn" id="todayBtn">오늘</button>
+      </div>
+    </div>
+  </header>
+
+
+  <nav class="top-tabs" aria-label="주요 메뉴">
+    <button class="top-tab active" data-page="annualPage">연간일정표</button>
+    <button class="top-tab" data-page="schedulePage">월간일정표</button>
+    <button class="top-tab" data-page="dailyLogPage">일일업무일지</button>
+    <button class="top-tab" data-page="weeklyLogPage">주간업무일지</button>
+    <button class="top-tab" data-page="manualPage">메뉴얼 및 서식</button>
+    <button class="top-tab" data-page="salaryPage">월급</button>
+    <button class="top-tab" data-page="leavePage">연차</button>
+  </nav>
+
+  <main>
+
+    <section class="page-view active" id="annualPage">
+      <div class="annual-toolbar">
+        <div>
+          <h2 style="margin:0;font-size:22px">연간일정표</h2>
+          <p style="margin:4px 0 0;color:var(--muted);font-size:13px">1월부터 12월까지 한 번에 확인해. 월을 누르면 월간일정표로 이동해.</p>
+        </div>
+        <div class="annual-year-nav">
+          <button class="icon-btn" id="prevYear">←</button>
+          <div class="annual-year-label" id="annualYearLabel"></div>
+          <button class="icon-btn" id="nextYear">→</button>
+          <button class="icon-btn" id="thisYearBtn">올해</button>
+        </div>
+      </div>
+
+      <div class="annual-grid" id="annualCalendar"></div>
+
+      <div class="annual-legend">
+        <span><span class="legend-dot" style="background:#F2C94C"></span>일일업무일지 작성 완료</span>
+        <span style="color:#ef72a5">★ 월급날</span>
+        <span style="color:var(--blue)">토요일</span>
+        <span style="color:var(--red)">일요일 · 공휴일</span>
+      </div>
+    </section>
+
+    <section class="page-view" id="schedulePage">
+      <div class="page-heading">
+        <div>
+          <h2>월간일정표</h2>
+          <p>월별 일정과 야근시간을 확인해. 날짜를 누르면 해당 날짜의 일일업무일지로 이동해.</p>
+        </div>
+      </div>
+
+      <section class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr));max-width:560px">
+        <div class="card">
+          <div class="label">이번 달 야근시간</div>
+          <div class="value" id="otHoursOnly">0시간</div>
+        </div>
+        <div class="card highlight">
+          <div class="label">다음달 지급 예정 야근비</div>
+          <div class="value" id="otPayOnly">0원</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-inner">
+          <h2 class="section-title">월간 캘린더</h2>
+          <div class="unsupported" id="unsupportedHoliday">
+            이 연도는 음력·대체공휴일 전체 데이터가 내장되어 있지 않아 고정일 공휴일만 표시될 수 있어.
+          </div>
+          <div class="calendar-scroll">
+            <div class="calendar-head">
+              <div class="memo-head">이번주 할일</div>
+              <div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div class="sat">토</div><div class="sun">일</div>
+            </div>
+            <div class="calendar" id="calendar"></div>
+          </div>
+          <div class="help" style="margin-top:12px">
+            개나리색 점은 일일업무일지 작성 완료, 분홍색 ★은 월급날이야. 월급날이 토·일·공휴일이면 직전 평일로 자동 조정돼. 월요일 왼쪽의 주간메모는 체크리스트형이고, 항목과 체크 상태가 자동 저장돼. 야근은 19:00~22:00 사이의 완료된 1시간 단위만 인정하며 하루 최대 3시간으로 자동 계산돼.
+          </div>
+        </div>
+      </section>
+    </section>
+
+
+    <section class="page-view" id="dailyLogPage">
+      <div class="daily-toolbar">
+        <div>
+          <h2 style="margin:0;font-size:22px">일일업무일지</h2>
+          <p style="margin:4px 0 0;color:var(--muted);font-size:13px">각 팀원이 자기 업무를 입력하면 같은 날짜의 팀 업무일지에 함께 표시돼.</p>
+        </div>
+        <div class="daily-date-nav">
+          <button class="icon-btn" id="prevDailyDate">←</button>
+          <div class="daily-date-label" id="dailyDateLabel"></div>
+          <button class="icon-btn" id="nextDailyDate">→</button>
+          <button class="icon-btn" id="todayDailyDate">오늘</button>
+        </div>
+      </div>
+
+      <div class="sync-panel">
+        <div class="sync-status">
+          <span class="sync-dot" id="syncDot"></span>
+          <span id="syncStatusText">팀 연동 확인 중</span>
+        </div>
+        <div class="auth-controls" id="authControls">
+          <input id="teamEmail" type="email" placeholder="회사/개인 이메일" />
+          <button class="btn primary" id="sendMagicLink">로그인 링크 받기</button>
+          <button class="btn" id="signOutTeam" style="display:none">로그아웃</button>
+        </div>
+      </div>
+
+      <div class="cloud-explain" id="cloudExplain">
+        팀 연동을 설정하기 전에는 내 업무일지만 이 브라우저에 임시 저장돼.
+        Supabase 연동 후에는 4명이 각자의 컴퓨터에서 입력한 내용이 같은 날짜 화면에 자동으로 합쳐져.
+      </div>
+
+      <section class="panel">
+        <div class="panel-inner">
+          <div class="daily-meta-bar">
+            <div class="field" style="margin:0;min-width:220px">
+              <label for="dailyWorkStatus">근무 상태</label>
+              <select id="dailyWorkStatus">
+                <option value="정상근무">정상근무</option>
+                <option value="연차">하루 연차</option>
+                <option value="오전반차">오전반차</option>
+                <option value="오후반차">오후반차</option>
+              </select>
+            </div>
+            <div class="auto-overtime-box">
+              <span>자동 계산 야근</span>
+              <strong id="dailyOvertimePreview">0시간</strong>
+              <small id="dailyOvertimeRule">20:00=1h · 21:00=2h · 22:00=3h</small>
+            </div>
+          </div>
+
+          <div class="daily-sheet-wrap">
+            <table class="daily-sheet">
+              <thead>
+                <tr>
+                  <th style="width:110px">성명</th>
+                  <th style="width:70px">구분</th>
+                  <th>업무내용</th>
+                  <th style="width:155px">출·퇴근시간</th>
+                </tr>
+              </thead>
+              <tbody id="dailyLogBody"></tbody>
+            </table>
+          </div>
+
+          <div class="daily-actions">
+            <button class="btn" id="dailyToSchedule">월간일정표 보기</button>
+            <button class="btn primary" id="saveDailyLog">내 업무일지 저장</button>
+          </div>
+          <div class="daily-message" id="dailyMessage"></div>
+        </div>
+      </section>
+    </section>
+
+
+    <section class="page-view" id="weeklyLogPage">
+      <div class="weekly-toolbar">
+        <div>
+          <h2 style="margin:0;font-size:22px">주간업무일지</h2>
+          <p style="margin:4px 0 0;color:var(--muted);font-size:13px">
+            팀원들의 일일업무일지를 한 주 단위로 모아서 봐. 직급이 높은 순서대로 정렬돼.
+          </p>
+        </div>
+        <div class="weekly-date-nav">
+          <button class="icon-btn" id="prevWeeklyDate">←</button>
+          <div class="weekly-date-label" id="weeklyDateLabel"></div>
+          <button class="icon-btn" id="nextWeeklyDate">→</button>
+          <button class="icon-btn" id="thisWeekBtn">이번주</button>
+        </div>
+      </div>
+
+      <div class="sync-panel">
+        <div class="sync-status">
+          <span class="sync-dot" id="weeklySyncDot"></span>
+          <span id="weeklySyncStatus">팀 연동 확인 중</span>
+        </div>
+      </div>
+
+      <div class="weekly-summary" id="weeklySummary"></div>
+
+      <section class="panel">
+        <div class="panel-inner">
+          <div class="weekly-sheet-wrap">
+            <table class="weekly-sheet">
+              <thead id="weeklyLogHead"></thead>
+              <tbody id="weeklyLogBody"></tbody>
+            </table>
+          </div>
+          <div class="daily-message" id="weeklyMessage"></div>
+        </div>
+      </section>
+    </section>
+
+
+    <section class="page-view" id="manualPage">
+      <div class="page-heading"><div><h2>메뉴얼 및 서식</h2><p>팀에서 함께 쓰는 메뉴얼, 보고서 양식, 참고자료를 올리고 내려받아.</p></div></div>
+      <section class="panel"><div class="panel-inner">
+        <h2 class="section-title">공유 파일 업로드</h2>
+        <div id="manualLoginNotice" class="shared-lock">팀 계정으로 로그인하면 파일 업로드와 다운로드를 사용할 수 있어.</div>
+        <div id="manualUploadArea" style="display:none">
+          <div class="file-upload-grid">
+            <div class="field"><label for="manualFileInput">파일 선택</label><input id="manualFileInput" type="file"></div>
+            <div class="field"><label for="manualFileCategory">분류</label><select id="manualFileCategory"><option>메뉴얼</option><option>서식</option><option>참고자료</option><option>기타</option></select></div>
+          </div>
+          <div class="field" style="margin-top:10px"><label for="manualFileNote">설명 (선택)</label><input id="manualFileNote" type="text" maxlength="200" placeholder="예: 실시설계 보고서 표준 목차"></div>
+          <button class="btn primary" id="uploadManualFile" style="margin-top:10px">파일 업로드</button><div class="upload-progress" id="manualUploadMessage"></div>
+        </div>
+      </div></section>
+      <section class="panel" style="margin-top:14px"><div class="panel-inner">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><h2 class="section-title" style="margin:0">팀 공유 파일</h2><button class="btn" id="refreshManualFiles">새로고침</button></div>
+        <div class="file-list" id="manualFileList" style="margin-top:12px"><div class="empty">로그인 후 공유 파일을 불러올 수 있어.</div></div>
+      </div></section>
+    </section>
+
+    <section class="page-view" id="salaryPage">
+      <div class="page-heading">
+        <div>
+          <h2>월급</h2>
+          <p>지급항목, 공제금액, 야근비와 퇴직연금을 관리해.</p>
+        </div>
+      </div>
+
+
+      <section class="manager-panel" id="payrollManagerPanel" style="display:none"><div class="panel-inner">
+        <div class="manager-title"><h2 class="section-title" style="margin:0">팀 급여 현황</h2><span class="badge">월급관리자 전용</span></div>
+        <div class="settings-note" style="margin-top:9px">일반 팀원은 다른 사람의 급여 데이터를 조회할 수 없고, 월급관리자로 지정된 계정만 이 표를 볼 수 있어. 각 팀원은 자신의 월급 페이지에서 <strong>급여 설정 저장</strong>을 한 번 해야 반영돼.</div>
+        <div class="payroll-table-wrap"><table class="payroll-table"><thead><tr><th>팀원</th><th>직급</th><th>고정지급</th><th>전월 야근</th><th>야근비</th><th>공제</th><th>예상 실수령</th></tr></thead><tbody id="teamPayrollBody"></tbody></table></div>
+        <div class="upload-progress" id="teamPayrollMessage"></div>
+      </div></section>
+
+      <section class="cards">
+        <div class="card">
+          <div class="label">월 지급항목 합계</div>
+          <div class="value" id="fixedPay">0원</div>
+        </div>
+        <div class="card">
+          <div class="label">전월 야근 / 이번달 지급 야근비</div>
+          <div class="value" id="otSummary">0h · 0원</div>
+        </div>
+        <div class="card deduct">
+          <div class="label">공제 합계</div>
+          <div class="value" id="deductionTotal">0원</div>
+        </div>
+        <div class="card highlight">
+          <div class="label">예상 실수령액</div>
+          <div class="value" id="netPay">0원</div>
+        </div>
+        <div class="card pension">
+          <div class="label">퇴직연금 월 적립</div>
+          <div class="value" id="pensionMonthly">0원</div>
+        </div>
+      </section>
+
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <section class="panel">
+          <div class="panel-inner">
+            <h2 class="section-title">급여 · 수당 설정</h2>
+
+            <div class="section-subtitle" style="border-top:0;padding-top:0;margin-top:0">지급 항목</div>
+            <div class="row">
+              <div class="field"><label for="basicSalary">기본급</label><input id="basicSalary" type="number" min="0" step="1000" /></div>
+              <div class="field"><label for="technicalAllowance">기술수당</label><input id="technicalAllowance" type="number" min="0" step="1000" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="positionAllowance">직급수당</label><input id="positionAllowance" type="number" min="0" step="1000" /></div>
+              <div class="field"><label for="qualificationAllowance">자격수당</label><input id="qualificationAllowance" type="number" min="0" step="1000" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="serviceAllowance">근속수당</label><input id="serviceAllowance" type="number" min="0" step="1000" /></div>
+              <div class="field">
+                <label for="payDay">월급날 (매월)</label>
+                <input id="payDay" type="number" min="1" max="31" step="1" placeholder="예: 25" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="jobDevelopment">직무개발비</label><input id="jobDevelopment" type="number" min="0" step="1000" /></div>
+              <div class="field"><label for="transport">교통비 보조</label><input id="transport" type="number" min="0" step="1000" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="meal">식대</label><input id="meal" type="number" min="0" step="1000" /></div>
+              <div class="field"><label for="hourlyOvertime">야근 시급</label><input id="hourlyOvertime" type="number" min="0" step="100" /></div>
+            </div>
+            <div class="settings-note" style="margin-bottom:13px">
+              <strong>야근 인정 기준</strong><br>
+              18:00 정시 퇴근 · 18:00~19:00 저녁시간 제외 · 19:00~22:00만 인정 ·
+              1시간 단위로만 계산 · 하루 최대 3시간 인정
+            </div>
+            <div class="field">
+              <label for="monthlyCap">월 야근 인정 한도</label>
+              <input id="monthlyCap" type="number" min="0" step="1" placeholder="0 = 제한 없음" />
+            </div>
+
+            <div class="section-subtitle">공제 항목</div>
+            <div class="row">
+              <div class="field"><label for="incomeTax">소득세</label><input id="incomeTax" type="number" min="0" step="100" /></div>
+              <div class="field"><label for="localTax">주민세(지방소득세)</label><input id="localTax" type="number" min="0" step="100" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="employmentInsurance">고용보험</label><input id="employmentInsurance" type="number" min="0" step="100" /></div>
+              <div class="field"><label for="healthInsurance">건강보험</label><input id="healthInsurance" type="number" min="0" step="100" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="longTermCare">장기요양보험</label><input id="longTermCare" type="number" min="0" step="100" /></div>
+              <div class="field"><label for="nationalPension">국민연금</label><input id="nationalPension" type="number" min="0" step="100" /></div>
+            </div>
+            <div class="field"><label for="associationFee">사우회비</label><input id="associationFee" type="number" min="0" step="100" /></div>
+
+            <div class="section-subtitle">퇴직연금</div>
+            <div class="row3">
+              <div class="field">
+                <label for="pensionType">유형</label>
+                <select id="pensionType">
+                  <option value="미설정">미설정</option>
+                  <option value="DB형">DB형</option>
+                  <option value="DC형">DC형</option>
+                  <option value="기타">기타</option>
+                </select>
+              </div>
+              <div class="field"><label for="retirementMonthly">월 적립액</label><input id="retirementMonthly" type="number" min="0" step="1000" /></div>
+              <div class="field"><label for="retirementBalance">누적 적립액</label><input id="retirementBalance" type="number" min="0" step="1000" /></div>
+            </div>
+
+            <button class="btn primary" id="saveSettings">급여 설정 저장</button>
+
+            <div class="backup">
+              <button class="btn" id="exportBtn">백업 내보내기</button>
+              <button class="btn" id="importBtn">백업 불러오기</button>
+              <input id="importFile" type="file" accept=".json,application/json" hidden />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-inner">
+            <h2 class="section-title" id="salaryMonthTitle">이번 달 급여 예상</h2>
+            <div class="pay-summary" id="payBreakdown"></div>
+            <div class="settings-note" style="margin-top:16px">
+              실수령 예상액 = 지급항목 합계 + 야근비 − 공제합계.<br>
+              공제액은 실제 급여명세서 금액을 직접 입력하는 방식이야.
+            </div>
+            <div class="settings-note holiday-note" style="margin-top:8px">
+              <span id="salaryOvertimeSourceNote">전월 일일업무일지의 야근시간이 이번 달 월급의 야근비로 반영돼.</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="page-view" id="leavePage">
+      <div class="page-heading">
+        <div>
+          <h2>연차</h2>
+          <p>일일업무일지에 등록한 연차를 자동으로 합산해.</p>
+        </div>
+      </div>
+
+      <div class="leave-summary-banner">
+        <div class="big" id="leaveSentence">올해 연차 총 <strong>0일</strong> 중 <strong>0일</strong>을 썼고, 지금 <strong>0일</strong>이 남았어.</div>
+        <div class="small">하루 연차는 1일, 오전반차·오후반차는 각각 0.5일로 계산돼.</div>
+        <div class="leave-progress"><div class="leave-progress-bar" id="leaveProgressBar"></div></div>
+      </div>
+
+      <section class="leave-cards">
+        <div class="leave-card">
+          <div class="label">올해 총 연차</div>
+          <div class="value" id="leaveTotal">0일</div>
+        </div>
+        <div class="leave-card">
+          <div class="label">사용한 연차</div>
+          <div class="value" id="leaveUsed">0일</div>
+        </div>
+        <div class="leave-card remaining">
+          <div class="label">남은 연차</div>
+          <div class="value" id="leaveRemaining">0일</div>
+        </div>
+      </section>
+
+
+      <section class="panel" style="margin-bottom:14px"><div class="panel-inner">
+        <h2 class="section-title">연차신청</h2>
+        <div class="leave-request-grid">
+          <div class="field"><label for="leaveRequestDate">사용일</label><input id="leaveRequestDate" type="date"></div>
+          <div class="field"><label for="leaveRequestType">구분</label><select id="leaveRequestType"><option value="연차">하루 연차</option><option value="오전반차">오전반차</option><option value="오후반차">오후반차</option></select></div>
+          <div class="field"><label for="leaveRequestNote">비고 (선택)</label><input id="leaveRequestNote" type="text" maxlength="200" placeholder="예: 병원 방문"></div>
+          <button class="btn primary" id="submitLeaveRequest">연차 신청</button>
+        </div>
+        <div class="settings-note" style="margin-top:10px">신청하면 해당 날짜의 일일업무일지 근무상태에도 자동 반영돼서 연차 사용량과 달력에 바로 표시돼.</div><div class="upload-progress" id="leaveRequestMessage"></div>
+      </div></section>
+      <section class="panel" style="margin-bottom:14px"><div class="panel-inner"><h2 class="section-title">팀 연차신청 현황</h2><div class="leave-request-list" id="teamLeaveRequestList"><div class="empty">팀 로그인 후 신청 내역을 볼 수 있어.</div></div></div></section>
+
+      <div class="grid" style="grid-template-columns:.65fr 1.35fr">
+        <section class="panel">
+          <div class="panel-inner">
+            <h2 class="section-title">연차 설정</h2>
+            <div class="field">
+              <label for="totalAnnualLeave">올해 부여받은 총 연차 (일)</label>
+              <input id="totalAnnualLeave" type="number" min="0" step="0.5" placeholder="예: 15" />
+            </div>
+            <button class="btn primary" id="saveLeaveSettings">연차 설정 저장</button>
+            <div class="settings-note" style="margin-top:12px">
+              총 연차 개수만 입력해두면 사용량은 일일업무일지의 근무 상태를 기준으로 자동 계산돼.
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-inner">
+            <h2 class="section-title"><span id="leaveYearLabel"></span> 연차 사용 내역</h2>
+            <div id="leaveHistory"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+  </main>
+
+
+
+
+  <div class="modal-backdrop" id="teamModal" aria-hidden="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle" style="max-width:650px">
+    <h2 id="teamModalTitle">팀 정보</h2><p class="lead">팀 이름과 현재 등록된 팀원, 직급, 월급관리자 권한을 확인해.</p>
+    <div id="teamModalLoggedOut" class="shared-lock">팀 계정으로 로그인하면 팀 정보를 볼 수 있어.</div>
+    <div id="teamModalLoggedIn" style="display:none">
+      <div class="team-name-card"><div class="team-name-title" id="teamNameDisplay">우리 팀</div><div id="teamNameManagerArea" style="display:none"><div class="field"><label for="teamNameInput">팀 이름</label><input id="teamNameInput" type="text" maxlength="50"></div><button class="btn primary" id="saveTeamName" style="margin-top:8px">팀 이름 저장</button></div><div class="team-admin-note" id="teamAdminNote"></div></div>
+      <div class="team-member-list" id="teamMemberList"></div>
+    </div>
+    <div class="modal-actions"><button class="btn" id="closeTeamModal">닫기</button></div>
+  </section></div>
+
+  <div class="modal-backdrop" id="loginModal" aria-hidden="true">
+    <section class="modal login-modal" role="dialog" aria-modal="true" aria-labelledby="loginModalTitle" style="max-width:520px">
+      <h2 id="loginModalTitle">팀 로그인</h2>
+      <p class="lead">
+        등록된 팀원 이메일을 입력하면 로그인 링크가 메일로 발송돼.
+        메일의 링크를 누르면 이 대시보드로 돌아오면서 로그인돼.
+      </p>
+
+      <div id="loginSignedOutArea">
+        <div class="field">
+          <label for="globalTeamEmail">팀원 이메일</label>
+          <input id="globalTeamEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+        </div>
+        <button class="btn primary" id="globalSendMagicLink" style="width:100%;margin-top:10px">
+          로그인 링크 받기
+        </button>
+      </div>
+
+      <div id="loginSignedInArea" style="display:none">
+        <div class="login-user-box">
+          <strong>로그인됨</strong>
+          <span id="loginUserEmail"></span>
+        </div>
+        <button class="btn danger" id="globalSignOut" style="width:100%">로그아웃</button>
+      </div>
+
+      <div class="login-status" id="globalLoginStatus">
+        Supabase에 등록된 팀원만 로그인할 수 있어.
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" id="closeLoginModal">닫기</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="profileModal" aria-hidden="true">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+      <h2 id="profileModalTitle">내 대시보드 시작하기</h2>
+      <p class="lead">
+        이 링크는 누구나 사용할 수 있어. 아래 정보는 이 사이트의 서버로 보내지지 않고
+        현재 사용하는 브라우저의 저장공간에만 저장돼.
+      </p>
+
+      <div class="modal-grid">
+        <div class="field">
+          <label for="profileUserName">이름 또는 별명</label>
+          <input id="profileUserName" type="text" maxlength="30" placeholder="예: 규원" />
+        </div>
+        <div class="field">
+          <label for="profileCompanyName">회사명 (선택)</label>
+          <input id="profileCompanyName" type="text" maxlength="50" placeholder="예: OO건축사사무소" />
+        </div>
+        <div class="field">
+          <label for="profileJobTitle">직급</label>
+          <select id="profileJobTitle">
+            <option value="">선택 안 함</option>
+            <option value="대표">대표</option>
+            <option value="소장">소장</option>
+            <option value="이사">이사</option>
+            <option value="부장">부장</option>
+            <option value="차장">차장</option>
+            <option value="과장">과장</option>
+            <option value="대리">대리</option>
+            <option value="주임">주임</option>
+            <option value="기사">기사</option>
+            <option value="사원">사원</option>
+            <option value="인턴">인턴</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="profileAnnualLeave">올해 총 연차</label>
+          <input id="profileAnnualLeave" type="number" min="0" step="0.5" placeholder="예: 15" />
+        </div>
+        <div class="field">
+          <label for="profileBasicSalary">월 기본급</label>
+          <input id="profileBasicSalary" type="number" min="0" step="1000" placeholder="예: 2500000" />
+        </div>
+        <div class="field">
+          <label for="profileOvertimeRate">야근 시급</label>
+          <input id="profileOvertimeRate" type="number" min="0" step="100" placeholder="예: 15000" />
+        </div>
+      </div>
+
+      <div class="privacy-box">
+        급여·연차 등 개인 설정은 현재 브라우저에 저장돼. 팀 연동을 사용하는 경우 이름·직급과 업무일지는
+        팀 업무일지 표시를 위해 공용 데이터베이스에 저장될 수 있어. 다른 기기에서는 팀 계정으로 로그인해야
+        공용 업무일지를 볼 수 있어.
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" id="closeProfileModal">닫기</button>
+        <button class="btn primary" id="saveProfile">저장하고 시작하기</button>
+      </div>
+
+      <div class="sync-box" id="profileSyncBox">
+        <div class="title">클라우드 동기화</div>
+        <div class="sync-state" id="syncStateText">팀 로그인 전 · 이 브라우저에만 저장돼</div>
+        <p class="sync-help">로그인하면 설정·월간기록·주간메모가 계정에 저장돼서 다른 기기에서도 그대로 이어서 볼 수 있어.</p>
+        <button class="btn" id="restoreSyncBackup">동기화 직전 상태로 되돌리기</button>
+      </div>
+
+      <div class="danger-zone" id="profileDangerZone">
+        <div class="title">개인 데이터 관리</div>
+        <button class="btn danger" id="resetAllData">모든 데이터 초기화</button>
+      </div>
+    </section>
+  </div>
+
+  <footer>회사생활 대시보드 · 팀 로그인 시 내 설정은 계정에 저장되고, 로그인 전에는 이 브라우저에만 저장됩니다.</footer>
+</div>
+
+<script src="./assets/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./assets/js/state.js"></script>
+<script src="./assets/js/payroll.js"></script>
+<script src="./assets/js/leave.js"></script>
+<script src="./assets/js/daily.js"></script>
+<script src="./assets/js/weekly.js"></script>
+<script src="./assets/js/calendar.js"></script>
+<script src="./assets/js/manual.js"></script>
+<script src="./assets/js/cloud.js"></script>
+<script src="./assets/js/sync.js"></script>
+<script src="./assets/js/main.js"></script>
+</body>
+</html>
