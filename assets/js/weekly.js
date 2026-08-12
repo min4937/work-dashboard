@@ -73,12 +73,12 @@ function updateWeeklySyncUi(){
   if(!teamCloud.configured){
     dot.className="sync-dot wait";
     text.textContent="팀 연동 전 · 현재는 내 업무일지만 표시";
-  }else if(teamCloud.user){
+  }else if(teamCloud.user && teamCloud.teamId){
     dot.className="sync-dot on";
-    text.textContent=`팀 연동됨 · ${teamCloud.user.email}`;
+    text.textContent=`${teamCloud.teamName} · ${teamCloud.user.email}`;
   }else{
     dot.className="sync-dot wait";
-    text.textContent="팀 계정으로 로그인하면 4명의 업무일지를 함께 볼 수 있어";
+    text.textContent=teamCloud.user?"팀에 참여하면 팀원 업무일지를 함께 볼 수 있어":"로그인하면 팀원 업무일지를 함께 볼 수 있어";
   }
 }
 
@@ -160,7 +160,7 @@ function localWeeklyLogs(){
 }
 
 async function loadCloudWeekly(){
-  if(!teamCloud.client || !teamCloud.user) return;
+  if(!teamCloud.client || !teamCloud.user || !teamCloud.teamId) return;
 
   const {start,end}=weeklyDateRange();
   const from=dateKey(start);
@@ -194,7 +194,7 @@ async function loadCloudWeekly(){
 }
 
 function subscribeWeeklyRealtime(){
-  if(!teamCloud.client || !teamCloud.user) return;
+  if(!teamCloud.client || !teamCloud.user || !teamCloud.teamId) return;
 
   if(teamCloud.weeklyChannel){
     teamCloud.client.removeChannel(teamCloud.weeklyChannel);
@@ -231,7 +231,7 @@ async function renderWeeklyLogPage(){
   label.textContent=weeklyRangeLabel();
   updateWeeklySyncUi();
 
-  if(teamCloud.configured && teamCloud.user){
+  if(teamCloud.configured && teamCloud.user && teamCloud.teamId){
     await syncMyCloudProfile();
     await loadCloudWeekly();
   }else{

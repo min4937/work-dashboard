@@ -1,3 +1,7 @@
+/* ============================================================================
+   Supabase 연결 · 내 프로필 · 팀 정보
+   ============================================================================ */
+
 async function loadMyLoggedDates(year=viewDate.getFullYear()){
   if(!teamCloud.client || !teamCloud.user){
     teamCloud.myLoggedDates=new Set();
@@ -45,160 +49,258 @@ async function loadMyLoggedDates(year=viewDate.getFullYear()){
   renderLeavePage();
 }
 
-function setGlobalLoginStatus(message,type=""){
-  const el=$("globalLoginStatus");
-  if(!el) return;
-  el.textContent=message||"";
-  el.className=`login-status${type?` ${type}`:""}`;
-}
-
-function openLoginModal(){
-  const modal=$("loginModal");
-  if(!modal) return;
-  updateGlobalAuthUi();
-  modal.classList.add("open");
-  modal.setAttribute("aria-hidden","false");
-  if(!teamCloud.user){
-    requestAnimationFrame(()=>$("globalTeamEmail")?.focus());
-  }
-}
-
-function closeLoginModal(){
-  const modal=$("loginModal");
-  if(!modal) return;
-  modal.classList.remove("open");
-  modal.setAttribute("aria-hidden","true");
-}
-
-function updateGlobalAuthUi(){
-  const btn=$("globalAuthBtn");
-  const state=$("globalAuthState");
-  const signedOut=$("loginSignedOutArea");
-  const signedIn=$("loginSignedInArea");
-  const email=$("loginUserEmail");
-
-  if(!btn||!state) return;
-
-  if(!teamCloud.configured){
-    state.textContent="팀 연동 설정 필요";
-    btn.textContent="팀 로그인";
-    if(signedOut) signedOut.style.display="block";
-    if(signedIn) signedIn.style.display="none";
-    setGlobalLoginStatus("Supabase 연결 설정을 확인해줘.","error");
-    return;
-  }
-
-  if(teamCloud.user){
-    state.textContent=teamCloud.user.email||"로그인됨";
-    btn.textContent="로그인됨";
-    if(email) email.textContent=teamCloud.user.email||"";
-    if(signedOut) signedOut.style.display="none";
-    if(signedIn) signedIn.style.display="block";
-    setGlobalLoginStatus("팀 업무일지가 Supabase와 연동되고 있어.","success");
-  }else{
-    state.textContent="팀 로그인 전";
-    btn.textContent="팀 로그인";
-    if(signedOut) signedOut.style.display="block";
-    if(signedIn) signedIn.style.display="none";
-    setGlobalLoginStatus("Supabase에 등록된 팀원 이메일로 로그인해.");
-  }
-}
-
-async function sendTeamMagicLink(email){
-  if(!teamCloud.client){
-    return {ok:false,message:"Supabase 연결이 아직 준비되지 않았어."};
-  }
-  const clean=String(email||"").trim();
-  if(!clean){
-    return {ok:false,message:"로그인할 이메일을 입력해줘."};
-  }
-
-  const redirectUrl=location.origin+location.pathname;
-  const {error}=await teamCloud.client.auth.signInWithOtp({
-    email:clean,
-    options:{
-      shouldCreateUser:false,
-      emailRedirectTo:redirectUrl
-    }
-  });
-
-  if(error){
-    console.error(error);
-    return {ok:false,message:"로그인 링크를 보내지 못했어. Supabase에 등록된 팀원 이메일인지 확인해줘."};
-  }
-  return {
-    ok:true,
-    message:"로그인 링크를 보냈어! 메일을 열어서 링크를 누르면 이 사이트로 돌아와 로그인돼."
-  };
-}
 
 function updateSyncUi(){
   updateGlobalAuthUi();
   const dot=$("syncDot");
   const text=$("syncStatusText");
-  const signOut=$("signOutTeam");
-  const email=$("teamEmail");
-  const send=$("sendMagicLink");
-  const explain=$("cloudExplain");
+
+  if(!dot||!text) return;
 
   if(!teamCloud.configured){
     dot.className="sync-dot wait";
     text.textContent="팀 연동 설정 필요 · 현재는 내 브라우저에만 저장";
-    signOut.style.display="none";
-    email.style.display="none";
-    send.style.display="none";
-    explain.style.display="block";
     return;
   }
 
-  if(teamCloud.user){
+  if(teamCloud.user && teamCloud.teamId){
     dot.className="sync-dot on";
-    text.textContent=`팀 연동됨 · ${teamCloud.user.email}`;
-    signOut.style.display="inline-block";
-    email.style.display="none";
-    send.style.display="none";
-    explain.style.display="none";
+    text.textContent=`${teamCloud.teamName} · ${teamCloud.user.email}`;
+  }else if(teamCloud.user){
+    dot.className="sync-dot wait";
+    text.textContent="아직 소속 팀이 없어 · 팀을 만들거나 초대코드로 참여해";
   }else{
     dot.className="sync-dot wait";
-    text.textContent="팀 연동 준비됨 · 이메일로 로그인해";
-    signOut.style.display="none";
-    email.style.display="inline-block";
-    send.style.display="inline-block";
-    explain.style.display="block";
-    explain.textContent="팀 계정으로 로그인하면 같은 날짜의 4명 업무일지가 한 화면에 표시돼. 로그인 링크는 등록된 팀원 이메일로만 보낼 수 있어.";
+    text.textContent="로그인 전 · 이 브라우저에만 저장돼";
   }
 }
 
 
-function updateTeamInfoButton(){const b=$("teamInfoBtn");if(b)b.textContent=teamCloud.user?`팀 · ${teamCloud.teamName||"우리 팀"}`:"팀 정보";}
-async function loadTeamMeta(){
-  if(!teamCloud.client||!teamCloud.user){teamCloud.teamName="우리 팀";teamCloud.teamRoles=[];teamCloud.isPayrollManager=false;updateTeamInfoButton();return;}
-  const [{data:s,error:se},{data:r,error:re}]=await Promise.all([teamCloud.client.from("team_settings").select("id,team_name").eq("id",1).maybeSingle(),teamCloud.client.from("team_roles").select("user_id,payroll_manager")]);
-  if(!se&&s?.team_name)teamCloud.teamName=s.team_name;if(!re)teamCloud.teamRoles=r||[];teamCloud.isPayrollManager=teamCloud.teamRoles.some(x=>x.user_id===teamCloud.user.id&&x.payroll_manager===true);updateTeamInfoButton();
+function updateTeamInfoButton(){
+  const b=$("teamInfoBtn");
+  if(b) b.textContent=teamCloud.teamId ? `팀 · ${teamCloud.teamName}` : "팀 정보";
 }
-async function openTeamModal(){
-  $("teamModal").classList.add("open");$("teamModal").setAttribute("aria-hidden","false");
-  if(!teamCloud.user){$("teamModalLoggedOut").style.display="block";$("teamModalLoggedIn").style.display="none";return;}
-  $("teamModalLoggedOut").style.display="none";$("teamModalLoggedIn").style.display="block";await loadTeamMeta();
-  const {data:m,error}=await teamCloud.client.from("profiles").select("user_id,display_name,job_title,sort_order");if(error){$("teamMemberList").innerHTML='<div class="empty">팀원 목록을 불러오지 못했어.</div>';return;}
-  $("teamNameDisplay").textContent=teamCloud.teamName;$("teamNameInput").value=teamCloud.teamName;$("teamNameManagerArea").style.display=teamCloud.isPayrollManager?"block":"none";$("teamAdminNote").textContent=teamCloud.isPayrollManager?"월급관리자는 팀 이름과 월급관리자 권한을 변경할 수 있어.":"팀 이름과 월급관리자 지정은 월급관리자만 변경할 수 있어.";
-  const rm=new Map(teamCloud.teamRoles.map(x=>[x.user_id,!!x.payroll_manager])),list=$("teamMemberList");list.innerHTML="";
-  sortTeamMembers(m||[]).forEach(x=>{const im=rm.get(x.user_id)===true,row=document.createElement("div");row.className="team-member-row";const a=teamCloud.isPayrollManager?`<button class="payroll-manage-btn" data-user="${x.user_id}" data-enabled="${im}">${im?"관리자 해제":"월급관리자 지정"}</button>`:(im?'<span class="payroll-badge">월급관리자</span>':'<span></span>');row.innerHTML=`<div><div class="team-member-name">${escapeHtml(x.display_name||"이름 미설정")}</div>${im?'<span class="payroll-badge" style="margin-top:4px">월급관리자</span>':""}</div><span class="team-rank-badge">${escapeHtml(x.job_title||"직급 미설정")}</span>${a}`;list.appendChild(row);});
-  if(teamCloud.isPayrollManager)list.querySelectorAll(".payroll-manage-btn").forEach(b=>b.addEventListener("click",async()=>{b.disabled=true;const {error:e}=await teamCloud.client.rpc("set_payroll_manager",{target_user_id:b.dataset.user,enabled:b.dataset.enabled!=="true"});if(e){alert(e.message||"권한 변경 실패");b.disabled=false;return;}await loadTeamMeta();await openTeamModal();if($("salaryPage")?.classList.contains("active"))await loadPayrollManagerPanel();}));
-}
-function closeTeamModal(){$("teamModal").classList.remove("open");$("teamModal").setAttribute("aria-hidden","true");}
 
+
+/* 내 프로필 → 소속 팀 → (팀장이면) 초대코드 순서로 읽는다. */
+async function loadTeamMeta(){
+  if(!teamCloud.client||!teamCloud.user){
+    teamCloud.profile=null;
+    teamCloud.teamId=null;
+    teamCloud.teamName="우리 팀";
+    teamCloud.isLeader=false;
+    teamCloud.inviteCode="";
+    updateTeamInfoButton();
+    return;
+  }
+
+  const {data:p,error:pe}=await teamCloud.client
+    .from("profiles")
+    .select("user_id,team_id,display_name,job_title,sort_order")
+    .eq("user_id",teamCloud.user.id)
+    .maybeSingle();
+
+  if(pe) console.error(pe);
+  teamCloud.profile=p||null;
+  teamCloud.teamId=p?.team_id||null;
+
+  if(!teamCloud.teamId){
+    teamCloud.teamName="우리 팀";
+    teamCloud.isLeader=false;
+    teamCloud.inviteCode="";
+    updateTeamInfoButton();
+    return;
+  }
+
+  const {data:t}=await teamCloud.client
+    .from("teams")
+    .select("id,name,leader_id")
+    .eq("id",teamCloud.teamId)
+    .maybeSingle();
+
+  teamCloud.teamName=t?.name||"우리 팀";
+  teamCloud.isLeader=t?.leader_id===teamCloud.user.id;
+
+  if(teamCloud.isLeader){
+    const {data:inv}=await teamCloud.client
+      .from("team_invites")
+      .select("code")
+      .eq("team_id",teamCloud.teamId)
+      .maybeSingle();
+    teamCloud.inviteCode=inv?.code||"";
+  }else{
+    teamCloud.inviteCode="";
+  }
+
+  updateTeamInfoButton();
+}
+
+
+/* 내 이름·직급을 팀에 공개되는 프로필에 반영한다. */
 async function syncMyCloudProfile(){
-  if(!teamCloud.client || !teamCloud.user) return;
-  const display=(data.settings.userName||"").trim() || (teamCloud.user.email||"팀원").split("@")[0];
-  const title=(data.settings.jobTitle||"").trim();
-  const {error}=await teamCloud.client.from("profiles").upsert({
-    user_id:teamCloud.user.id,
+  if(!teamCloud.client || !teamCloud.user || !teamCloud.teamId) return;
+
+  const local=(data.settings.userName||"").trim();
+  const server=(teamCloud.profile?.display_name||"").trim();
+
+  // 새 기기에서 로컬이 비어 있으면 서버 이름을 가져다 쓴다 (덮어쓰기 방지)
+  if(!local && server){
+    data.settings.userName=server;
+    if(!data.settings.jobTitle && teamCloud.profile?.job_title){
+      data.settings.jobTitle=teamCloud.profile.job_title;
+    }
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(data));
+    renderSettings();
+    updateBranding();
+  }
+
+  const display=(data.settings.userName||"").trim() || server || (teamCloud.user.email||"팀원").split("@")[0];
+  const title=(data.settings.jobTitle||"").trim() || (teamCloud.profile?.job_title||"");
+
+  const {error}=await teamCloud.client.from("profiles").update({
     display_name:display,
     job_title:title,
-    sort_order:jobTitleSortOrder(title)
-  },{onConflict:"user_id"});
+    sort_order:jobTitleSortOrder(title),
+    updated_at:new Date().toISOString()
+  }).eq("user_id",teamCloud.user.id);
+
   if(error) console.error(error);
+}
+
+
+/* 팀원 목록 + 현재 상태를 읽어 사이드바를 다시 그린다. */
+async function refreshTeamMembers(){
+  if(!teamCloud.client||!teamCloud.user||!teamCloud.teamId){
+    teamCloud.members=[];
+    teamCloud.memberStatus=new Map();
+    renderStatusBar();
+    return;
+  }
+
+  const [{data:members,error:me},{data:statuses,error:se}]=await Promise.all([
+    teamCloud.client.from("profiles")
+      .select("user_id,display_name,job_title,sort_order")
+      .eq("team_id",teamCloud.teamId),
+    teamCloud.client.from("member_status").select("user_id,status,status_date,updated_at")
+  ]);
+
+  if(me){console.error(me);return;}
+  if(se) console.error(se);
+
+  teamCloud.members=sortTeamMembers(members||[]);
+  teamCloud.memberStatus=new Map((statuses||[]).map(s=>[s.user_id,s]));
+  renderStatusBar();
+}
+
+
+/* ------------------------------------------------------------------ 팀 모달 */
+
+async function openTeamModal(){
+  $("teamModal").classList.add("open");
+  $("teamModal").setAttribute("aria-hidden","false");
+
+  if(!teamCloud.user){
+    $("teamModalLoggedOut").style.display="block";
+    $("teamModalLoggedIn").style.display="none";
+    return;
+  }
+
+  $("teamModalLoggedOut").style.display="none";
+  $("teamModalLoggedIn").style.display="block";
+  await loadTeamMeta();
+
+  if(!teamCloud.teamId){
+    $("teamMemberList").innerHTML='<div class="empty">아직 소속 팀이 없어. 팀을 만들거나 초대코드로 참여해줘.</div>';
+    $("teamNameDisplay").textContent="소속 팀 없음";
+    $("teamNameManagerArea").style.display="none";
+    $("inviteCodeArea").style.display="none";
+    $("teamAdminNote").textContent="";
+    return;
+  }
+
+  $("teamNameDisplay").textContent=teamCloud.teamName;
+  $("teamNameInput").value=teamCloud.teamName;
+  $("teamNameManagerArea").style.display=teamCloud.isLeader?"block":"none";
+  $("teamAdminNote").textContent=teamCloud.isLeader
+    ? "팀장은 팀 이름을 바꾸고 초대코드를 재발급할 수 있어."
+    : "팀 이름 변경과 초대코드 발급은 팀장만 할 수 있어.";
+
+  // 초대코드는 팀장에게만 보인다
+  $("inviteCodeArea").style.display=teamCloud.isLeader?"block":"none";
+  if(teamCloud.isLeader) $("inviteCodeValue").textContent=teamCloud.inviteCode||"-";
+
+  const {data:m,error}=await teamCloud.client
+    .from("profiles")
+    .select("user_id,display_name,job_title,sort_order")
+    .eq("team_id",teamCloud.teamId);
+
+  if(error){
+    $("teamMemberList").innerHTML='<div class="empty">팀원 목록을 불러오지 못했어.</div>';
+    return;
+  }
+
+  const {data:t}=await teamCloud.client
+    .from("teams").select("leader_id").eq("id",teamCloud.teamId).maybeSingle();
+  const leaderId=t?.leader_id;
+
+  const list=$("teamMemberList");
+  list.innerHTML="";
+  sortTeamMembers(m||[]).forEach(x=>{
+    const row=document.createElement("div");
+    row.className="team-member-row";
+    const isLeaderRow=x.user_id===leaderId;
+    row.innerHTML=
+      `<div><div class="team-member-name">${escapeHtml(x.display_name||"이름 미설정")}</div>`+
+      `${isLeaderRow?'<span class="leader-badge" style="margin-top:4px">팀장</span>':""}</div>`+
+      `<span class="team-rank-badge">${escapeHtml(x.job_title||"직급 미설정")}</span>`+
+      `<span>${x.user_id===teamCloud.user.id?'<span class="me-badge">나</span>':""}</span>`;
+    list.appendChild(row);
+  });
+}
+
+function closeTeamModal(){
+  $("teamModal").classList.remove("open");
+  $("teamModal").setAttribute("aria-hidden","true");
+}
+
+async function rotateInviteCode(){
+  if(!teamCloud.isLeader) return;
+  if(!confirm("초대코드를 새로 발급할까? 기존 코드는 즉시 사용할 수 없게 돼.")) return;
+  const {data:code,error}=await teamCloud.client.rpc("rotate_invite_code");
+  if(error){
+    alert(error.message||"초대코드 재발급에 실패했어.");
+    return;
+  }
+  teamCloud.inviteCode=code||"";
+  $("inviteCodeValue").textContent=teamCloud.inviteCode||"-";
+}
+
+function copyInviteCode(){
+  if(!teamCloud.inviteCode) return;
+  navigator.clipboard?.writeText(teamCloud.inviteCode).then(
+    ()=>{
+      const b=$("copyInviteCode");
+      const old=b.textContent;
+      b.textContent="복사됨!";
+      setTimeout(()=>{b.textContent=old;},1500);
+    },
+    ()=>alert(`초대코드: ${teamCloud.inviteCode}`)
+  );
+}
+
+
+/* ---------------------------------------------------------------- 초기화 */
+
+async function applySignedInState(){
+  await loadTeamMeta();
+  await ensureTeamMembership();
+  await pullUserState();
+  await syncMyCloudProfile();
+  await loadMyLoggedDates(viewDate.getFullYear());
+  await refreshTeamMembers();
+  subscribeStatusRealtime();
+  updateSyncUi();
+  renderAll();
 }
 
 async function initTeamCloud(){
@@ -206,10 +308,11 @@ async function initTeamCloud(){
   const url=(cfg.supabaseUrl||"").trim();
   const key=(cfg.supabasePublishableKey||"").trim();
 
-  if(!url || !key || !window.supabase){
+  if(!url || !key || !window.supabase || url.includes("<")){
     teamCloud.configured=false;
     updateSyncUi();
     updateGlobalAuthUi();
+    renderStatusBar();
     renderDailyLogPage();
     return;
   }
@@ -224,41 +327,33 @@ async function initTeamCloud(){
   const {data:{session}}=await teamCloud.client.auth.getSession();
   teamCloud.user=session?.user||null;
 
-  if(teamCloud.user){
-    await pullUserState();
-    await syncMyCloudProfile();
-    await loadTeamMeta();
-    await loadMyLoggedDates(viewDate.getFullYear());
-    const sourceMonth=payrollOvertimeMonth();
-    if(sourceMonth.getFullYear()!==viewDate.getFullYear()){
-      await loadMyLoggedDates(sourceMonth.getFullYear());
-    }
-    renderAll();
-  }
+  if(teamCloud.user) await applySignedInState();
 
-  teamCloud.client.auth.onAuthStateChange(async(_event,session)=>{
+  teamCloud.client.auth.onAuthStateChange(async(event,session)=>{
+    if(event==="PASSWORD_RECOVERY"){
+      await handlePasswordRecovery();
+      return;
+    }
+
     teamCloud.user=session?.user||null;
     updateSyncUi();
     updateGlobalAuthUi();
+
     if(teamCloud.user){
-      await pullUserState();
-      await syncMyCloudProfile();
-      await loadTeamMeta();
-      await loadMyLoggedDates(viewDate.getFullYear());
-      const sourceMonth=payrollOvertimeMonth();
-      if(sourceMonth.getFullYear()!==viewDate.getFullYear()){
-        await loadMyLoggedDates(sourceMonth.getFullYear());
-      }
-      renderAll();
+      await applySignedInState();
     }else{
+      unsubscribeStatusRealtime();
+      renderStatusBar();
       renderAll();
     }
+
     if($("dailyLogPage")?.classList.contains("active")) renderDailyLogPage();
     if($("weeklyLogPage")?.classList.contains("active")) renderWeeklyLogPage();
   });
 
   updateSyncUi();
   updateGlobalAuthUi();
+  renderStatusBar();
   if($("dailyLogPage")?.classList.contains("active")) renderDailyLogPage();
   if($("weeklyLogPage")?.classList.contains("active")) renderWeeklyLogPage();
 }

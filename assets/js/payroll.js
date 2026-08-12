@@ -1,3 +1,10 @@
+/* ============================================================================
+   야근 인정 계산 · 급여 · 급여일
+
+   급여는 완전히 개인 데이터다. user_state 테이블에 본인만 읽고 쓸 수 있게
+   저장되며, 팀장을 포함해 누구도 남의 급여를 볼 수 없다.
+   ============================================================================ */
+
 const earningKeys=[
   "basicSalary","technicalAllowance","positionAllowance","qualificationAllowance","serviceAllowance",
   "jobDevelopment","transport","meal"
@@ -8,26 +15,6 @@ const deductionKeys=[
 ];
 
 
-const salaryShareKeys=[...earningKeys,...deductionKeys,"hourlyOvertime","monthlyCap","pensionType","retirementMonthly","retirementBalance","payDay"];
-function salarySettingsSnapshot(){const o={};salaryShareKeys.forEach(k=>o[k]=data.settings[k]??defaultSettings[k]);return o;}
-async function syncMySalaryProfile(){if(!teamCloud.client||!teamCloud.user)return;const {error}=await teamCloud.client.from("salary_profiles").upsert({user_id:teamCloud.user.id,settings:salarySettingsSnapshot(),updated_at:new Date().toISOString()},{onConflict:"user_id"});if(error)console.error(error);}
-function payrollForSharedSettings(settings,overtimeHours){const s={...defaultSettings,...(settings||{})};let hours=Math.max(0,Number(overtimeHours||0));const cap=Number(s.monthlyCap||0);if(cap>0)hours=Math.min(hours,cap);const fixedPay=earningKeys.reduce((a,k)=>a+Number(s[k]||0),0),deductions=deductionKeys.reduce((a,k)=>a+Number(s[k]||0),0),overtimePay=hours*Number(s.hourlyOvertime||0);return{hours,fixedPay,deductions,overtimePay,net:fixedPay+overtimePay-deductions};}
-async function loadPayrollManagerPanel(){
-  const panel=$("payrollManagerPanel");if(!panel)return;
-  if(!teamCloud.user||!teamCloud.isPayrollManager){panel.style.display="none";return;}
-  panel.style.display="block";$("teamPayrollMessage").textContent="팀 급여를 불러오는 중...";
-  const sm=payrollOvertimeMonth(),first=`${sm.getFullYear()}-${String(sm.getMonth()+1).padStart(2,"0")}-01`,last=dateKey(new Date(sm.getFullYear(),sm.getMonth()+1,0));
-  const [{data:p,error:pe},{data:s,error:se},{data:l,error:le}]=await Promise.all([
-    teamCloud.client.from("profiles").select("user_id,display_name,job_title,sort_order"),
-    teamCloud.client.from("salary_profiles").select("user_id,settings,updated_at"),
-    teamCloud.client.from("daily_logs").select("user_id,work_date,overtime_hours").gte("work_date",first).lte("work_date",last)
-  ]);
-  if(pe||se||le){console.error(pe||se||le);$("teamPayrollMessage").textContent="팀 급여를 불러오지 못했어. v12 SQL 업데이트를 확인해줘.";return;}
-  const smap=new Map((s||[]).map(x=>[x.user_id,x])),omap=new Map();(l||[]).forEach(x=>omap.set(x.user_id,(omap.get(x.user_id)||0)+Number(x.overtime_hours||0)));
-  const body=$("teamPayrollBody");body.innerHTML="";
-  sortTeamMembers(p||[]).forEach(m=>{const tr=document.createElement("tr"),sp=smap.get(m.user_id);if(!sp)tr.innerHTML=`<td>${escapeHtml(m.display_name||"이름 미설정")}</td><td>${escapeHtml(m.job_title||"-")}</td><td colspan="5" class="payroll-missing">급여 설정 미등록</td>`;else{const c=payrollForSharedSettings(sp.settings,omap.get(m.user_id)||0);tr.innerHTML=`<td>${escapeHtml(m.display_name||"이름 미설정")}</td><td>${escapeHtml(m.job_title||"-")}</td><td>${won(c.fixedPay)}</td><td>${formatHours(c.hours)}h</td><td>${won(c.overtimePay)}</td><td>${won(c.deductions)}</td><td><strong>${won(c.net)}</strong></td>`;}body.appendChild(tr);});
-  $("teamPayrollMessage").textContent=`${sm.getFullYear()}년 ${sm.getMonth()+1}월 야근 반영 기준`;
-}
 
 function totals(){
   const s=data.settings;

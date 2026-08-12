@@ -126,6 +126,14 @@ let teamCloud = {
   configured:false,
   client:null,
   user:null,
+
+  // 내 프로필과 소속 팀
+  profile:null,
+  teamId:null,
+  teamName:"우리 팀",
+  isLeader:false,
+  inviteCode:"",
+
   members:[],
   logs:[],
   myLoggedDates:new Set(),
@@ -133,13 +141,12 @@ let teamCloud = {
   myWorkStatusByDate:new Map(),
   channel:null,
   weeklyChannel:null,
+  statusChannel:null,
   weeklyMembers:[],
   weeklyLogs:[],
-  teamName:"우리 팀",
-  teamRoles:[],
-  isPayrollManager:false,
   teamFiles:[],
-  leaveRequests:[]
+  leaveRequests:[],
+  memberStatus:new Map()
 };
 
 const $ = (id) => document.getElementById(id);

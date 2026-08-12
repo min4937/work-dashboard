@@ -188,7 +188,7 @@ async function renderDailyLogPage(){
   if($("dailyWorkStatus")) $("dailyWorkStatus").value=normalizeLeaveStatus(currentSummary.work_status||"정상근무");
   if($("dailyOvertimeRule")) $("dailyOvertimeRule").textContent="20:00=1h · 21:00=2h · 22:00=3h";
 
-  if(teamCloud.configured && teamCloud.user){
+  if(teamCloud.configured && teamCloud.user && teamCloud.teamId){
     await syncMyCloudProfile();
     await loadMyLoggedDates();
     await loadCloudDaily();
@@ -197,7 +197,11 @@ async function renderDailyLogPage(){
     const localLog={user_id:"local",...getLocalDailyLog()};
     renderDailyRows([member],[localLog],"local");
     if($("dailyWorkStatus")) $("dailyWorkStatus").value=normalizeLeaveStatus(localLog.work_status||data.records?.[dailyLogDate]?.category||"정상근무");
-    setDailyMessage(teamCloud.configured ? "팀 계정 로그인 전에는 이 화면의 내용이 팀과 공유되지 않아." : "현재 로컬 임시 저장 모드야.");
+    setDailyMessage(
+      !teamCloud.configured ? "현재 로컬 임시 저장 모드야."
+      : teamCloud.user ? "팀에 참여하면 이 화면이 팀과 공유돼."
+      : "로그인 전에는 이 화면의 내용이 팀과 공유되지 않아."
+    );
   }
 }
 
@@ -227,7 +231,11 @@ async function saveMyDailyLog(){
 
   if(teamCloud.configured){
     if(!teamCloud.user){
-      setDailyMessage("먼저 팀 계정으로 로그인해줘.",true);
+      setDailyMessage("먼저 로그인해줘.",true);
+      return;
+    }
+    if(!teamCloud.teamId){
+      setDailyMessage("팀을 만들거나 초대코드로 참여한 뒤에 저장할 수 있어.",true);
       return;
     }
     const {error}=await teamCloud.client.from("daily_logs").upsert({
@@ -250,6 +258,10 @@ async function saveMyDailyLog(){
     renderPayBreakdown();
     renderLeavePage();
     setDailyMessage(`내 업무일지를 저장했어. 퇴근 ${endTime||"-"} → 인정 야근 ${formatHours(overtimeHours)}시간`);
+
+    // 오늘 일지에 퇴근시간을 넣어 저장하면 상태바를 자동으로 '퇴근'으로 내린다.
+    if(endTime && dailyLogDate===dateKey(new Date())) await setMyStatus("off",true);
+
     await loadCloudDaily();
     returnToMonthlyAfterDailySave();
   }else{

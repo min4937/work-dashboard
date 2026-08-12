@@ -109,8 +109,6 @@ async function pushUserState(immediate = false) {
     return;
   }
 
-  // 월급관리자 집계에 쓰이는 급여 스냅샷도 함께 갱신한다.
-  await syncMySalaryProfile();
   setSyncStatus("클라우드에 저장됨");
 }
 
