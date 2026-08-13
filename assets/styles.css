@@ -247,6 +247,38 @@
   .chip.note{background:var(--blue-soft);color:#275eae}
   .chip.holiday{background:var(--red-soft);color:var(--red);font-weight:900}
 
+  /* 월간일정표 상단: 왼쪽 요약카드 · 오른쪽 팀 공지사항 */
+  .schedule-top{
+    display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);
+    gap:14px;align-items:stretch;margin-bottom:14px
+  }
+  .schedule-top .cards{align-content:start}
+  .notice-panel{margin:0;display:flex}
+  .notice-panel .panel-inner{display:flex;flex-direction:column;width:100%}
+  .notice-head{
+    display:flex;justify-content:space-between;align-items:baseline;
+    gap:10px;flex-wrap:wrap;margin-bottom:12px
+  }
+  .notice-meta{font-size:11px;color:var(--muted);font-weight:800}
+  .notice-view{
+    flex:1;font-size:13px;line-height:1.7;overflow:auto;max-height:210px
+  }
+  .notice-view ul{margin:0;padding-left:18px}
+  .notice-view li{margin-bottom:4px}
+  #noticeInput{
+    resize:vertical;min-height:96px;font-size:13px;line-height:1.7;
+    font-family:inherit
+  }
+  .notice-actions{
+    display:flex;justify-content:space-between;align-items:center;
+    gap:10px;flex-wrap:wrap;margin-top:10px
+  }
+  .notice-message{font-size:11px;color:var(--muted);flex:1;min-width:0}
+
+  @media(max-width:1080px){
+    .schedule-top{grid-template-columns:1fr}
+  }
+
   /* 날짜칸의 팀원 근무상황 */
   .calendar-toolbar{
     display:flex;justify-content:space-between;align-items:center;

@@ -26,6 +26,7 @@ function renderAll(){
   renderLeavePage();
   renderStatusBar();
   renderWorkTimeBox();
+  renderNoticePanel();
   const dailyPage=$("dailyLogPage");
   if(dailyPage?.classList.contains("active")) renderDailyLogPage();
   const weeklyPage=$("weeklyLogPage");
@@ -324,6 +325,8 @@ STATUS_ORDER.forEach(status=>{
 
 /* ------------------------------------------------------------ 출·퇴근 기록 */
 
+$("saveNotice").addEventListener("click",saveTeamNotice);
+
 $("stampStartTime").addEventListener("click",()=>stampWorkTime("start"));
 $("stampEndTime").addEventListener("click",()=>stampWorkTime("end"));
 
@@ -403,6 +406,7 @@ document.querySelectorAll(".top-tab").forEach(btn=>{
     // 마지막으로 열어본 페이지 기억
     localStorage.setItem("myCompanyDashboard_lastPage",pageId);
 
+    if(pageId==="schedulePage" && teamCloud.configured && teamCloud.user) await loadTeamNotice();
     if(pageId==="dailyLogPage") await renderDailyLogPage();
     if(pageId==="weeklyLogPage") await renderWeeklyLogPage();
     if(pageId==="manualPage") await renderManualPage();

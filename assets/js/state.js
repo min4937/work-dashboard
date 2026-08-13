@@ -142,9 +142,11 @@ let teamCloud = {
   myTimesByDate:new Map(),      // 날짜 → {start_time,end_time}
   teamDayLogs:new Map(),        // 날짜 → [{user_id,display_name,job_title,sort_order,work_status,start_time,end_time}]
   teamLogsMonth:"",             // teamDayLogs 에 담긴 달 (YYYY-MM)
+  notice:null,                  // 팀 공지사항 {content,updated_by,updated_at}
   channel:null,
   weeklyChannel:null,
   statusChannel:null,
+  noticeChannel:null,
   weeklyMembers:[],
   weeklyLogs:[],
   teamFiles:[],

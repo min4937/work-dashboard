@@ -135,6 +135,14 @@ create table if not exists public.team_files (
 
 create index if not exists team_files_uploader_idx on public.team_files (uploader_id);
 
+-- 팀 공지사항 (월간일정표 오른쪽) · 팀당 한 건, 팀장만 쓴다
+create table if not exists public.team_notices (
+  team_id    uuid primary key references public.teams(id) on delete cascade,
+  content    text not null default '',
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
 -- 개인 전체 상태 (설정·급여·연차일수·월간기록·주간메모)
 -- ★ 오직 본인만 읽고 쓴다. 팀장도 열람할 수 없다. ★
 create table if not exists public.user_state (
@@ -217,6 +225,7 @@ alter table public.daily_logs     enable row level security;
 alter table public.leave_requests enable row level security;
 alter table public.member_status  enable row level security;
 alter table public.team_files     enable row level security;
+alter table public.team_notices   enable row level security;
 alter table public.user_state     enable row level security;
 alter table public.holidays       enable row level security;
 
@@ -345,6 +354,24 @@ create policy team_files_update on public.team_files
 drop policy if exists team_files_delete on public.team_files;
 create policy team_files_delete on public.team_files
   for delete to authenticated using (uploader_id = auth.uid());
+
+
+-- team_notices: 같은 팀이면 누구나 읽고, 쓰기는 팀장만
+drop policy if exists team_notices_select on public.team_notices;
+create policy team_notices_select on public.team_notices
+  for select to authenticated
+  using (team_id = public.current_team_id());
+
+drop policy if exists team_notices_insert on public.team_notices;
+create policy team_notices_insert on public.team_notices
+  for insert to authenticated
+  with check (team_id = public.current_team_id() and public.is_team_leader());
+
+drop policy if exists team_notices_update on public.team_notices;
+create policy team_notices_update on public.team_notices
+  for update to authenticated
+  using (team_id = public.current_team_id() and public.is_team_leader())
+  with check (team_id = public.current_team_id() and public.is_team_leader());
 
 
 -- user_state: 읽기까지 본인만. 팀장도 열람 불가.
@@ -571,6 +598,13 @@ begin
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'member_status'
   ) then
     alter publication supabase_realtime add table public.member_status;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'team_notices'
+  ) then
+    alter publication supabase_realtime add table public.team_notices;
   end if;
 end;
 $$;

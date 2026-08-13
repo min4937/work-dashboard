@@ -18,6 +18,7 @@ assets/
     weekly.js            주간 업무일지
     calendar.js          월간 달력(팀원 근무상황 표시) · 연간달력 모달 · 주간 메모
     manual.js            메뉴얼 및 서식 파일
+    notice.js            팀 공지사항 (팀장만 작성)
     status.js            근무 상태바 (출근/자리비움/외근/퇴근) · 출·퇴근 시각 기록
     cloud.js             Supabase 클라이언트 · 프로필 · 팀 정보
     auth.js              회원가입 · 로그인 · 팀 생성/참여
@@ -26,6 +27,7 @@ assets/
 supabase/
   schema.sql             테이블 · RLS 정책 · RPC · Storage · 공휴일
   patch-2026-08-field-status.sql   기존 프로젝트에 '외근' 상태 허용
+  patch-2026-08-team-notices.sql   기존 프로젝트에 팀 공지사항 테이블 추가
 ```
 
 스크립트는 ES 모듈이 아니라 순서대로 로드되는 전역 스크립트다. `index.html` 하단의
@@ -88,7 +90,8 @@ python -m http.server 8000
 |---|---|---|---|
 | 일일/주간 업무일지, 출퇴근, 야근시간 | `daily_logs` | 같은 팀 전원 | 본인만 |
 | 연차 **신청 현황** | `leave_requests` | 같은 팀 전원 | 본인만 |
-| 근무 상태 (초록/노랑/회색) | `member_status` | 같은 팀 전원 | 본인만 |
+| 근무 상태 (초록/노랑/보라/회색) | `member_status` | 같은 팀 전원 | 본인만 |
+| 팀 공지사항 | `team_notices` | 같은 팀 전원 | **팀장만** |
 | 이름·직급 | `profiles` | 같은 팀 전원 | 본인만 |
 | 공유 문서 | `team_files` + Storage | 같은 팀 전원 | 올린 사람만 삭제 |
 | 팀 이름 | `teams` | 같은 팀 전원 | 팀장만 |
@@ -101,6 +104,14 @@ python -m http.server 8000
 
 공유 문서는 `<team_id>/<user_id>/<파일명>` 경로에 저장되고, Storage 정책이 이 경로로
 팀과 소유자를 판정한다. 업로드는 팀원 누구나, 삭제는 올린 사람만 할 수 있다.
+
+## 팀 공지사항
+
+월간일정표 오른쪽 패널. 팀당 한 건이고 **팀장만** 쓸 수 있다. 팀원에게는 읽기 전용으로
+보이며, 화면뿐 아니라 `team_notices`의 RLS 정책(`is_team_leader()`)으로도 막혀 있다.
+팀장이 저장하면 Realtime으로 팀원 화면에 즉시 반영된다.
+
+> 기존 프로젝트는 `supabase/patch-2026-08-team-notices.sql`을 한 번 실행해야 한다.
 
 ## 근무 상태바
 

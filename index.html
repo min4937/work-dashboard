@@ -90,16 +90,40 @@
         </div>
       </div>
 
-      <section class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr));max-width:560px">
-        <div class="card">
-          <div class="label">이번 달 야근시간</div>
-          <div class="value" id="otHoursOnly">0시간</div>
-        </div>
-        <div class="card highlight">
-          <div class="label">다음달 지급 예정 야근비</div>
-          <div class="value" id="otPayOnly">0원</div>
-        </div>
-      </section>
+      <div class="schedule-top">
+        <section class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:0">
+          <div class="card">
+            <div class="label">이번 달 야근시간</div>
+            <div class="value" id="otHoursOnly">0시간</div>
+          </div>
+          <div class="card highlight">
+            <div class="label">다음달 지급 예정 야근비</div>
+            <div class="value" id="otPayOnly">0원</div>
+          </div>
+        </section>
+
+        <section class="panel notice-panel">
+          <div class="panel-inner">
+            <div class="notice-head">
+              <h2 class="section-title" style="margin:0">팀 공지사항</h2>
+              <span class="notice-meta" id="noticeMeta"></span>
+            </div>
+
+            <div class="shared-lock" id="noticeLock">팀 로그인 후 공지사항을 볼 수 있어.</div>
+
+            <div class="notice-view" id="noticeView" style="display:none"></div>
+
+            <div id="noticeEditArea" style="display:none">
+              <textarea id="noticeInput" rows="6" maxlength="2000"
+                placeholder="팀에 알릴 내용을 적어. 한 줄에 하나씩 쓰면 보기 좋아."></textarea>
+              <div class="notice-actions">
+                <span class="notice-message" id="noticeMessage"></span>
+                <button class="btn primary" id="saveNotice">공지 저장</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <section class="panel">
         <div class="panel-inner">
@@ -744,6 +768,7 @@
 <script src="./assets/js/weekly.js"></script>
 <script src="./assets/js/calendar.js"></script>
 <script src="./assets/js/manual.js"></script>
+<script src="./assets/js/notice.js"></script>
 <script src="./assets/js/status.js"></script>
 <script src="./assets/js/cloud.js"></script>
 <script src="./assets/js/auth.js"></script>
