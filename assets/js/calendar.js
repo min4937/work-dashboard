@@ -148,7 +148,7 @@ const MEMBER_STATUS_CLASS={
   "오전반차":"leave",
   "오후반차":"leave",
   "반차":"leave",
-  "외근":"field"
+  "외근":"outwork"
 };
 const DAY_MEMBER_LIMIT=3;
 

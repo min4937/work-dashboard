@@ -46,7 +46,8 @@
   }
   .status-dot.working{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.16)}
   .status-dot.away{background:#f5b301;box-shadow:0 0 0 3px rgba(245,179,1,.16)}
-  .status-dot.field{background:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,.16)}
+  /* 클래스명 'field' 는 폼 입력칸(.field)과 충돌하므로 쓰지 않는다 */
+  .status-dot.outwork{background:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,.16)}
   .status-dot.off{background:#9aa3af}
 
   /* 오늘 출·퇴근 시각 */
@@ -264,7 +265,7 @@
   .day-member-name{overflow:hidden;text-overflow:ellipsis}
   .day-member.work{background:rgba(37,99,235,.07);color:#275eae}
   .day-member.leave{background:rgba(139,92,246,.1);color:#6d43c9}
-  .day-member.field{background:var(--green-soft);color:#1f7a52}
+  .day-member.outwork{background:var(--green-soft);color:#1f7a52}
   .day-member-more{
     display:block;margin-top:4px;padding:2px 4px;border:0;background:none;
     color:var(--muted);font-size:10px;font-weight:800;cursor:pointer;

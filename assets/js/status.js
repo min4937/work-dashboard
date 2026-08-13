@@ -15,6 +15,8 @@
 
 const STATUS_LABELS = { working: "출근", away: "자리비움", field: "외근", off: "퇴근" };
 const STATUS_ORDER = ["working", "away", "field", "off"];
+// 상태값 → 점 색깔 클래스. 'field' 는 폼 입력칸 클래스(.field)와 겹쳐서 따로 쓴다.
+const STATUS_DOT_CLASS = { working: "working", away: "away", field: "outwork", off: "off" };
 
 /* 어제 눌러둔 '출근'이 오늘까지 초록으로 남지 않도록, 날짜가 다르면 퇴근으로 본다. */
 function effectiveStatus(record) {
@@ -77,7 +79,7 @@ function renderStatusBar() {
     const row = document.createElement("div");
     row.className = `status-row${isMe ? " me" : ""}`;
     row.innerHTML = `
-      <span class="status-dot ${status}" title="${STATUS_LABELS[status]}"></span>
+      <span class="status-dot ${STATUS_DOT_CLASS[status]}" title="${STATUS_LABELS[status]}"></span>
       <div class="status-name">
         <div class="status-person">${escapeHtml(member.display_name || "이름 미설정")}${isMe ? '<span class="me-badge">나</span>' : ""}</div>
         <div class="status-sub">${escapeHtml(member.job_title || "")} ${STATUS_LABELS[status]}</div>
