@@ -35,6 +35,7 @@ function renderSummary(){
   $("deductionTotal").textContent=won(t.deductions);
   $("netPay").textContent=won(t.net);
   $("pensionMonthly").textContent=won(data.settings.retirementMonthly);
+  renderPaydayCountdown();
 
   // 월간일정표에서는 '현재 보고 있는 달'의 야근 실적을 보여준다.
   const currentHours=monthlyOvertimeHours();
@@ -55,6 +56,41 @@ function renderSummary(){
       `${sourceMonth.getFullYear()}년 ${sourceMonth.getMonth()+1}월 야근비가 `+
       `${viewDate.getFullYear()}년 ${viewDate.getMonth()+1}월 월급에 포함돼.`;
   }
+}
+
+/* 오늘 기준으로 다음 월급날을 찾는다. (토·일·공휴일 조정까지 반영) */
+function nextPaydayFromToday(){
+  const today=new Date();
+  today.setHours(0,0,0,0);
+  let payday=effectivePaydayDate(today.getFullYear(),today.getMonth());
+  if(payday<today) payday=effectivePaydayDate(today.getFullYear(),today.getMonth()+1);
+  return payday;
+}
+
+function renderPaydayCountdown(){
+  const ddayEl=$("paydayDday");
+  if(!ddayEl) return;
+
+  const today=new Date();
+  today.setHours(0,0,0,0);
+  const payday=nextPaydayFromToday();
+  const days=Math.round((payday-today)/86400000);
+  const weekdays=["일","월","화","수","목","금","토"];
+  const label=`${payday.getMonth()+1}월 ${payday.getDate()}일(${weekdays[payday.getDay()]})`;
+
+  ddayEl.textContent=days===0 ? "D-DAY" : `D-${days}`;
+  ddayEl.classList.toggle("today",days===0);
+
+  $("paydaySentence").innerHTML=days===0
+    ? `오늘이 월급날이야! <strong>${label}</strong>`
+    : `다음 월급날 <strong>${label}</strong>까지 <strong>${days}일</strong> 남았어.`;
+
+  const configured=Math.min(31,Math.max(1,Number(data.settings.payDay||25)));
+  const lastDay=new Date(payday.getFullYear(),payday.getMonth()+1,0).getDate();
+  const nominalDay=Math.min(configured,lastDay);
+  $("paydayNote").textContent=payday.getDate()!==nominalDay
+    ? `원래 월급날은 ${nominalDay}일이지만 휴일이라 ${payday.getDate()}일로 앞당겨졌어.`
+    : `월급날은 매월 ${configured}일이야. 토·일·공휴일이면 직전 평일로 자동 조정돼.`;
 }
 
 function renderPayBreakdown(){

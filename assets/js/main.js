@@ -25,6 +25,7 @@ function renderAll(){
   renderPayBreakdown();
   renderLeavePage();
   renderStatusBar();
+  renderWorkTimeBox();
   const dailyPage=$("dailyLogPage");
   if(dailyPage?.classList.contains("active")) renderDailyLogPage();
   const weeklyPage=$("weeklyLogPage");
@@ -152,6 +153,24 @@ $("dailySignInBtn").addEventListener("click",openLoginModal);
 
 /* --------------------------------------------------------------- 연/월 이동 */
 
+function openAnnualModal(){
+  annualYear=viewDate.getFullYear();
+  $("annualModal").classList.add("open");
+  $("annualModal").setAttribute("aria-hidden","false");
+  renderAnnualCalendar();
+}
+
+function closeAnnualModal(){
+  $("annualModal").classList.remove("open");
+  $("annualModal").setAttribute("aria-hidden","true");
+}
+
+$("monthLabel").addEventListener("click",openAnnualModal);
+$("closeAnnualModal").addEventListener("click",closeAnnualModal);
+$("annualModal").addEventListener("click",e=>{
+  if(e.target===$("annualModal")) closeAnnualModal();
+});
+
 $("prevYear").addEventListener("click",()=>{
   annualYear--;
   renderAnnualCalendar();
@@ -165,21 +184,26 @@ $("thisYearBtn").addEventListener("click",()=>{
   renderAnnualCalendar();
 });
 
+async function reloadForViewMonth(fullYear=false){
+  if(teamCloud.configured && teamCloud.user){
+    await loadMyLoggedDates(fullYear ? viewDate.getFullYear() : undefined);
+    await loadTeamMonthLogs();
+  }
+  renderAll();
+}
+
 $("prevMonth").addEventListener("click",async()=>{
   viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()-1,1);
-  if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates();
-  renderAll();
+  await reloadForViewMonth();
 });
 $("nextMonth").addEventListener("click",async()=>{
   viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()+1,1);
-  if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates();
-  renderAll();
+  await reloadForViewMonth();
 });
 $("todayBtn").addEventListener("click",async()=>{
   const now=new Date();
   viewDate=new Date(now.getFullYear(),now.getMonth(),1);
-  if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates(viewDate.getFullYear());
-  renderAll();
+  await reloadForViewMonth(true);
 });
 
 
@@ -293,9 +317,18 @@ $("teamSetupSignOut").addEventListener("click",async()=>{
 
 /* ------------------------------------------------------------------ 상태바 */
 
-["working","away","off"].forEach(status=>{
-  $(`statusBtn_${status}`).addEventListener("click",()=>setMyStatus(status));
+STATUS_ORDER.forEach(status=>{
+  $(`statusBtn_${status}`).addEventListener("click",()=>handleStatusClick(status));
 });
+
+
+/* ------------------------------------------------------------ 출·퇴근 기록 */
+
+$("stampStartTime").addEventListener("click",()=>stampWorkTime("start"));
+$("stampEndTime").addEventListener("click",()=>stampWorkTime("end"));
+
+$("todayStartTime").addEventListener("change",e=>saveMyTimes({start_time:e.target.value}));
+$("todayEndTime").addEventListener("change",e=>saveMyTimes({end_time:e.target.value}));
 
 
 /* ------------------------------------------------------------------ 내 정보 */
@@ -388,13 +421,10 @@ document.querySelectorAll(".top-tab").forEach(btn=>{
 /* ----------------------------------------------------------------- 부팅 */
 
 const lastPage=localStorage.getItem("myCompanyDashboard_lastPage");
-if(["annualPage","schedulePage","dailyLogPage","weeklyLogPage","manualPage","salaryPage","leavePage"].includes(lastPage)){
-  const savedBtn=document.querySelector(`[data-page="${lastPage}"]`);
-  if(savedBtn) savedBtn.click();
-}else{
-  const annualBtn=document.querySelector('[data-page="annualPage"]');
-  if(annualBtn) annualBtn.click();
-}
+const savedBtn=["schedulePage","dailyLogPage","weeklyLogPage","manualPage","salaryPage","leavePage"].includes(lastPage)
+  ? document.querySelector(`[data-page="${lastPage}"]`)
+  : null;
+(savedBtn || document.querySelector('[data-page="schedulePage"]'))?.click();
 
 renderSettings();
 renderAll();

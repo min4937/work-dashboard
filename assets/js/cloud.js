@@ -7,6 +7,7 @@ async function loadMyLoggedDates(year=viewDate.getFullYear()){
     teamCloud.myLoggedDates=new Set();
     teamCloud.myOvertimeByDate=new Map();
     teamCloud.myWorkStatusByDate=new Map();
+    teamCloud.myTimesByDate=new Map();
     return;
   }
 
@@ -15,7 +16,7 @@ async function loadMyLoggedDates(year=viewDate.getFullYear()){
 
   const {data:rows,error}=await teamCloud.client
     .from("daily_logs")
-    .select("work_date,overtime_hours,work_status")
+    .select("work_date,overtime_hours,work_status,start_time,end_time")
     .eq("user_id",teamCloud.user.id)
     .gte("work_date",from)
     .lte("work_date",to);
@@ -35,11 +36,18 @@ async function loadMyLoggedDates(year=viewDate.getFullYear()){
   for(const key of [...teamCloud.myWorkStatusByDate.keys()]){
     if(key.startsWith(`${year}-`)) teamCloud.myWorkStatusByDate.delete(key);
   }
+  for(const key of [...teamCloud.myTimesByDate.keys()]){
+    if(key.startsWith(`${year}-`)) teamCloud.myTimesByDate.delete(key);
+  }
 
   (rows||[]).forEach(r=>{
     teamCloud.myLoggedDates.add(r.work_date);
     teamCloud.myOvertimeByDate.set(r.work_date,Number(r.overtime_hours||0));
     teamCloud.myWorkStatusByDate.set(r.work_date,r.work_status||"정상근무");
+    teamCloud.myTimesByDate.set(r.work_date,{
+      start_time:r.start_time||"",
+      end_time:r.end_time||""
+    });
   });
 
   renderCalendar();
@@ -47,6 +55,66 @@ async function loadMyLoggedDates(year=viewDate.getFullYear()){
   renderSummary();
   renderPayBreakdown();
   renderLeavePage();
+  renderWorkTimeBox();
+}
+
+
+/* 월간일정표 날짜칸에 팀원 근무상황을 띄우기 위해, 보고 있는 달의 팀 전체
+   일일업무일지를 한 번에 읽어 날짜별로 묶어둔다. (RLS 가 같은 팀만 내려준다) */
+async function loadTeamMonthLogs(monthDate=viewDate){
+  const monthKey=`${monthDate.getFullYear()}-${String(monthDate.getMonth()+1).padStart(2,"0")}`;
+
+  if(!teamCloud.client || !teamCloud.user || !teamCloud.teamId){
+    teamCloud.teamDayLogs=new Map();
+    teamCloud.teamLogsMonth="";
+    return;
+  }
+
+  // 달력은 앞뒤 달의 며칠을 함께 보여주므로 한 주씩 여유를 둔다.
+  const from=dateKey(new Date(monthDate.getFullYear(),monthDate.getMonth(),-7));
+  const to=dateKey(new Date(monthDate.getFullYear(),monthDate.getMonth()+1,7));
+
+  const [{data:members,error:me},{data:logs,error:le}]=await Promise.all([
+    teamCloud.client.from("profiles")
+      .select("user_id,display_name,job_title,sort_order")
+      .eq("team_id",teamCloud.teamId),
+    teamCloud.client.from("daily_logs")
+      .select("user_id,work_date,work_status,start_time,end_time")
+      .gte("work_date",from)
+      .lte("work_date",to)
+  ]);
+
+  if(me||le){
+    console.error(me||le);
+    return;
+  }
+
+  const memberMap=new Map((members||[]).map(m=>[m.user_id,m]));
+  const byDate=new Map();
+
+  (logs||[]).forEach(log=>{
+    const member=memberMap.get(log.user_id);
+    if(!member) return;   // 다른 팀이거나 탈퇴한 사람
+    const list=byDate.get(log.work_date)||[];
+    list.push({
+      user_id:log.user_id,
+      display_name:member.display_name||"이름 미설정",
+      job_title:member.job_title||"",
+      sort_order:member.sort_order,
+      work_status:normalizeLeaveStatus(log.work_status),
+      start_time:log.start_time||"",
+      end_time:log.end_time||""
+    });
+    byDate.set(log.work_date,list);
+  });
+
+  for(const [date,list] of byDate.entries()){
+    byDate.set(date,sortTeamMembers(list));
+  }
+
+  teamCloud.teamDayLogs=byDate;
+  teamCloud.teamLogsMonth=monthKey;
+  renderCalendar();
 }
 
 
@@ -297,6 +365,7 @@ async function applySignedInState(){
   await pullUserState();
   await syncMyCloudProfile();
   await loadMyLoggedDates(viewDate.getFullYear());
+  await loadTeamMonthLogs();
   await refreshTeamMembers();
   subscribeStatusRealtime();
   updateSyncUi();
@@ -343,6 +412,9 @@ async function initTeamCloud(){
       await applySignedInState();
     }else{
       unsubscribeStatusRealtime();
+      teamCloud.teamDayLogs=new Map();
+      teamCloud.teamLogsMonth="";
+      teamCloud.myTimesByDate=new Map();
       renderStatusBar();
       renderAll();
     }

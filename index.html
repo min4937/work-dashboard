@@ -15,8 +15,24 @@
     <p class="status-legend">
       <span><span class="status-dot working"></span>출근</span>
       <span><span class="status-dot away"></span>자리비움</span>
+      <span><span class="status-dot field"></span>외근</span>
       <span><span class="status-dot off"></span>퇴근</span>
     </p>
+  </div>
+
+  <div class="worktime-box" id="workTimeBox">
+    <div class="worktime-title">오늘 근무시간</div>
+    <div class="worktime-row">
+      <label for="todayStartTime">출근</label>
+      <input id="todayStartTime" type="time" />
+      <button class="worktime-stamp" id="stampStartTime" type="button" title="지금 시각으로 기록">지금</button>
+    </div>
+    <div class="worktime-row">
+      <label for="todayEndTime">퇴근</label>
+      <input id="todayEndTime" type="time" />
+      <button class="worktime-stamp" id="stampEndTime" type="button" title="지금 시각으로 기록">지금</button>
+    </div>
+    <div class="worktime-note" id="workTimeNote">출근·퇴근 버튼을 누르면 그 시각이 자동으로 기록돼. 직접 고쳐도 바로 저장돼.</div>
   </div>
 
   <div class="status-notice" id="statusBarNotice">로그인하면 팀원 상태가 보여.</div>
@@ -27,6 +43,7 @@
     <div class="status-controls-title">내 상태</div>
     <button class="status-btn working" id="statusBtn_working"><span class="status-dot working"></span>출근</button>
     <button class="status-btn away" id="statusBtn_away"><span class="status-dot away"></span>자리비움</button>
+    <button class="status-btn field" id="statusBtn_field"><span class="status-dot field"></span>외근</button>
     <button class="status-btn off" id="statusBtn_off"><span class="status-dot off"></span>퇴근</button>
   </div>
 </aside>
@@ -46,7 +63,7 @@
       <button class="icon-btn" id="profileBtn">내 정보</button>
       <div class="month-nav" id="monthNav" style="display:none">
       <button class="icon-btn" id="prevMonth">←</button>
-      <div class="month-label" id="monthLabel"></div>
+      <button class="month-label" id="monthLabel" type="button" title="연간달력 열기"></button>
       <button class="icon-btn" id="nextMonth">→</button>
       <button class="icon-btn" id="todayBtn">오늘</button>
       </div>
@@ -55,8 +72,7 @@
 
 
   <nav class="top-tabs" aria-label="주요 메뉴">
-    <button class="top-tab active" data-page="annualPage">연간일정표</button>
-    <button class="top-tab" data-page="schedulePage">월간일정표</button>
+    <button class="top-tab active" data-page="schedulePage">월간일정표</button>
     <button class="top-tab" data-page="dailyLogPage">일일업무일지</button>
     <button class="top-tab" data-page="weeklyLogPage">주간업무일지</button>
     <button class="top-tab" data-page="manualPage">메뉴얼 및 서식</button>
@@ -66,31 +82,7 @@
 
   <main>
 
-    <section class="page-view active" id="annualPage">
-      <div class="annual-toolbar">
-        <div>
-          <h2 style="margin:0;font-size:22px">연간일정표</h2>
-          <p style="margin:4px 0 0;color:var(--muted);font-size:13px">1월부터 12월까지 한 번에 확인해. 월을 누르면 월간일정표로 이동해.</p>
-        </div>
-        <div class="annual-year-nav">
-          <button class="icon-btn" id="prevYear">←</button>
-          <div class="annual-year-label" id="annualYearLabel"></div>
-          <button class="icon-btn" id="nextYear">→</button>
-          <button class="icon-btn" id="thisYearBtn">올해</button>
-        </div>
-      </div>
-
-      <div class="annual-grid" id="annualCalendar"></div>
-
-      <div class="annual-legend">
-        <span><span class="legend-dot" style="background:#F2C94C"></span>일일업무일지 작성 완료</span>
-        <span style="color:#ef72a5">★ 월급날</span>
-        <span style="color:var(--blue)">토요일</span>
-        <span style="color:var(--red)">일요일 · 공휴일</span>
-      </div>
-    </section>
-
-    <section class="page-view" id="schedulePage">
+    <section class="page-view active" id="schedulePage">
       <div class="page-heading">
         <div>
           <h2>월간일정표</h2>
@@ -111,7 +103,14 @@
 
       <section class="panel">
         <div class="panel-inner">
-          <h2 class="section-title">월간 캘린더</h2>
+          <div class="calendar-toolbar">
+            <h2 class="section-title" style="margin:0">월간 캘린더</h2>
+            <div class="member-legend">
+              <span><span class="member-icon">🌴</span>휴가</span>
+              <span><span class="member-icon">🚗</span>외근</span>
+              <span><span class="member-icon">💼</span>출근</span>
+            </div>
+          </div>
           <div class="unsupported" id="unsupportedHoliday">
             이 연도는 음력·대체공휴일 전체 데이터가 내장되어 있지 않아 고정일 공휴일만 표시될 수 있어.
           </div>
@@ -123,6 +122,7 @@
             <div class="calendar" id="calendar"></div>
           </div>
           <div class="help" style="margin-top:12px">
+            날짜 칸에는 그날 일일업무일지를 쓴 팀원이 🌴휴가 · 🚗외근 · 💼출근 아이콘과 함께 표시돼. 상단의 <strong>년·월 라벨을 누르면 연간달력</strong>이 열려.
             개나리색 점은 일일업무일지 작성 완료, 분홍색 ★은 월급날이야. 월급날이 토·일·공휴일이면 직전 평일로 자동 조정돼. 월요일 왼쪽의 주간메모는 체크리스트형이고, 항목과 체크 상태가 자동 저장돼. 야근은 19:00~22:00 사이의 완료된 1시간 단위만 인정하며 하루 최대 3시간으로 자동 계산돼.
           </div>
         </div>
@@ -161,6 +161,7 @@
               <label for="dailyWorkStatus">근무 상태</label>
               <select id="dailyWorkStatus">
                 <option value="정상근무">정상근무</option>
+                <option value="외근">외근</option>
                 <option value="연차">하루 연차</option>
                 <option value="오전반차">오전반차</option>
                 <option value="오후반차">오후반차</option>
@@ -268,6 +269,14 @@
       <div class="private-note">
         🔒 월급은 완전한 개인 데이터야. 내 계정에만 저장되고 팀장을 포함해 누구도 볼 수 없어.
       </div>
+
+      <section class="payday-banner">
+        <div class="payday-dday" id="paydayDday">D-0</div>
+        <div class="payday-text">
+          <div class="payday-main" id="paydaySentence">월급날을 계산하는 중이야.</div>
+          <div class="payday-sub" id="paydayNote"></div>
+        </div>
+      </section>
 
       <section class="cards">
         <div class="card">
@@ -457,6 +466,36 @@
 
 
 
+
+  <div class="modal-backdrop" id="annualModal" aria-hidden="true">
+    <section class="modal annual-modal" role="dialog" aria-modal="true" aria-labelledby="annualModalTitle">
+      <div class="annual-toolbar">
+        <div>
+          <h2 id="annualModalTitle" style="margin:0;font-size:22px">연간달력</h2>
+          <p style="margin:4px 0 0;color:var(--muted);font-size:13px">1월부터 12월까지 한 번에 확인해. 월을 누르면 그 달의 월간일정표로 이동해.</p>
+        </div>
+        <div class="annual-year-nav">
+          <button class="icon-btn" id="prevYear">←</button>
+          <div class="annual-year-label" id="annualYearLabel"></div>
+          <button class="icon-btn" id="nextYear">→</button>
+          <button class="icon-btn" id="thisYearBtn">올해</button>
+        </div>
+      </div>
+
+      <div class="annual-grid" id="annualCalendar"></div>
+
+      <div class="annual-legend">
+        <span><span class="legend-dot" style="background:#F2C94C"></span>일일업무일지 작성 완료</span>
+        <span style="color:#ef72a5">★ 월급날</span>
+        <span style="color:var(--blue)">토요일</span>
+        <span style="color:var(--red)">일요일 · 공휴일</span>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" id="closeAnnualModal">닫기</button>
+      </div>
+    </section>
+  </div>
 
   <div class="modal-backdrop" id="teamModal" aria-hidden="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle" style="max-width:650px">
     <h2 id="teamModalTitle">팀 정보</h2><p class="lead">팀 이름과 현재 등록된 팀원, 직급을 확인해.</p>

@@ -134,9 +134,96 @@ function makeWeekMemoCell(mondayDate){
   return cell;
 }
 
+/* --------------------------------------------------- 날짜칸의 팀원 근무상황 */
+
+const MEMBER_STATUS_ICONS={
+  "연차":"🌴",
+  "오전반차":"🌴",
+  "오후반차":"🌴",
+  "반차":"🌴",
+  "외근":"🚗"
+};
+const MEMBER_STATUS_CLASS={
+  "연차":"leave",
+  "오전반차":"leave",
+  "오후반차":"leave",
+  "반차":"leave",
+  "외근":"field"
+};
+const DAY_MEMBER_LIMIT=3;
+
+// '+N명 더' 를 눌러 펼쳐 둔 날짜
+const expandedDayKeys=new Set();
+
+function memberStatusIcon(status){
+  return MEMBER_STATUS_ICONS[status]||"💼";
+}
+
+function memberStatusClass(status){
+  return MEMBER_STATUS_CLASS[status]||"work";
+}
+
+/* 팀에 속해 있으면 팀 전체를, 아니면 내 기록만 보여준다. */
+function memberEntriesForDate(key){
+  if(teamCloud.configured && teamCloud.user && teamCloud.teamId){
+    return teamCloud.teamDayLogs.get(key)||[];
+  }
+  if(!hasMyDailyLog(key)) return [];
+  const summary=getMyDailySummary(key);
+  return [{
+    user_id:"me",
+    display_name:(data.settings.userName||"").trim()||"내 근무",
+    job_title:data.settings.jobTitle||"",
+    work_status:normalizeLeaveStatus(summary.work_status),
+    start_time:data.dailyLogs?.[key]?.start_time||"",
+    end_time:data.dailyLogs?.[key]?.end_time||""
+  }];
+}
+
+function appendDayMembers(cell,key){
+  const entries=memberEntriesForDate(key);
+  if(!entries.length) return;
+
+  const expanded=expandedDayKeys.has(key);
+  const shown=expanded ? entries : entries.slice(0,DAY_MEMBER_LIMIT);
+
+  shown.forEach(entry=>{
+    const row=document.createElement("div");
+    row.className=`day-member ${memberStatusClass(entry.work_status)}`;
+    const times=[entry.start_time,entry.end_time].filter(Boolean).join("~");
+    row.title=[
+      entry.display_name,
+      entry.job_title,
+      entry.work_status,
+      times
+    ].filter(Boolean).join(" · ");
+    row.innerHTML=
+      `<span class="day-member-icon">${memberStatusIcon(entry.work_status)}</span>`+
+      `<span class="day-member-name">${escapeHtml(entry.display_name)}</span>`;
+    cell.appendChild(row);
+  });
+
+  if(entries.length>DAY_MEMBER_LIMIT){
+    const more=document.createElement("button");
+    more.type="button";
+    more.className="day-member-more";
+    more.textContent=expanded ? "접기" : `+${entries.length-DAY_MEMBER_LIMIT}명 더`;
+    more.addEventListener("click",e=>{
+      e.stopPropagation();
+      if(expanded) expandedDayKeys.delete(key);
+      else expandedDayKeys.add(key);
+      renderCalendar();
+    });
+    cell.appendChild(more);
+  }
+}
+
+
 function renderAnnualCalendar(){
   const wrap=$("annualCalendar");
   if(!wrap) return;
+  // 연간달력은 모달이 열려 있을 때만 그린다.
+  if(!$("annualModal")?.classList.contains("open")) return;
   $("annualYearLabel").textContent=`${annualYear}년`;
   wrap.innerHTML="";
   const todayKey=dateKey(new Date());
@@ -198,10 +285,14 @@ function renderAnnualCalendar(){
 
     card.addEventListener("click",async()=>{
       viewDate=new Date(annualYear,month,1);
-      if(teamCloud.configured && teamCloud.user) await loadMyLoggedDates(viewDate.getFullYear());
-      renderAll();
+      closeAnnualModal();
       const monthlyBtn=document.querySelector('[data-page="schedulePage"]');
       if(monthlyBtn) monthlyBtn.click();
+      if(teamCloud.configured && teamCloud.user){
+        await loadMyLoggedDates(viewDate.getFullYear());
+        await loadTeamMonthLogs();
+      }
+      renderAll();
     });
 
     wrap.appendChild(card);
@@ -273,12 +364,7 @@ function renderCalendar(){
         cell.appendChild(c);
       }
 
-      if(leaveDaysForCategory(summary.work_status)>0){
-        const c=document.createElement("div");
-        c.className="chip note";
-        c.textContent=leaveStatusLabel(summary.work_status);
-        cell.appendChild(c);
-      }
+      appendDayMembers(cell,key);
 
       cell.addEventListener("click",()=>openDailyLog(key));
       cal.appendChild(cell);

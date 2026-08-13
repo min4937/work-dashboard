@@ -139,6 +139,9 @@ let teamCloud = {
   myLoggedDates:new Set(),
   myOvertimeByDate:new Map(),
   myWorkStatusByDate:new Map(),
+  myTimesByDate:new Map(),      // 날짜 → {start_time,end_time}
+  teamDayLogs:new Map(),        // 날짜 → [{user_id,display_name,job_title,sort_order,work_status,start_time,end_time}]
+  teamLogsMonth:"",             // teamDayLogs 에 담긴 달 (YYYY-MM)
   channel:null,
   weeklyChannel:null,
   statusChannel:null,

@@ -110,10 +110,15 @@ create table if not exists public.leave_requests (
 -- 근무 상태 (왼쪽 상태바)
 create table if not exists public.member_status (
   user_id     uuid primary key references auth.users(id) on delete cascade,
-  status      text not null default 'off' check (status in ('working', 'away', 'off')),
+  status      text not null default 'off' check (status in ('working', 'away', 'field', 'off')),
   status_date date not null default current_date,
   updated_at  timestamptz not null default now()
 );
+
+-- 이미 만들어져 있던 테이블에도 '외근(field)' 을 허용한다. (재실행 안전)
+alter table public.member_status drop constraint if exists member_status_status_check;
+alter table public.member_status add constraint member_status_status_check
+  check (status in ('working', 'away', 'field', 'off'));
 
 -- 공유 문서 메타데이터 (실제 파일은 Storage 의 team-documents 버킷)
 create table if not exists public.team_files (

@@ -252,6 +252,9 @@ async function saveMyDailyLog(){
     teamCloud.myLoggedDates.add(dailyLogDate);
     teamCloud.myOvertimeByDate.set(dailyLogDate,overtimeHours);
     teamCloud.myWorkStatusByDate.set(dailyLogDate,payload.work_status);
+    teamCloud.myTimesByDate.set(dailyLogDate,{start_time:startTime||"",end_time:endTime||""});
+    if(teamCloud.teamId) await loadTeamMonthLogs();
+    renderWorkTimeBox();
     renderCalendar();
     renderAnnualCalendar();
     renderSummary();
@@ -270,6 +273,7 @@ async function saveMyDailyLog(){
     // 예전 날짜별 기록의 야근/연차 데이터가 있다면 일일업무일지로 자연스럽게 이전
     if(data.records?.[dailyLogDate]) delete data.records[dailyLogDate];
     persist();
+    renderWorkTimeBox();
     renderCalendar();
     renderAnnualCalendar();
     renderSummary();
