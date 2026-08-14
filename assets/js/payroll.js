@@ -134,25 +134,50 @@ function parseTimeMinutes(value){
   return h*60+m;
 }
 
-function calculateOvertimeHours(startTime,endTime){
-  // 회사 야근 인정은 '퇴근시간'만으로 계산한다.
-  // 출근시간이 비어 있어도 퇴근시간이 있으면 정상 계산된다.
+const WEEKDAY_OVERTIME_CAP=3;   // 평일 야근 인정 한도
+const HOLIDAY_WORK_CAP=8;       // 주말·공휴일 출근 추가수당 한도
+
+/* 주말(토·일)이거나 공휴일인 날짜인가 */
+function isHolidayWorkDate(key){
+  if(!key) return false;
+  const d=new Date(key+"T00:00:00");
+  if(Number.isNaN(d.getTime())) return false;
+  return d.getDay()===0 || d.getDay()===6 || Boolean(getHoliday(key));
+}
+
+function overtimeCapForDate(key){
+  return isHolidayWorkDate(key) ? HOLIDAY_WORK_CAP : WEEKDAY_OVERTIME_CAP;
+}
+
+function overtimeLabelForDate(key){
+  return isHolidayWorkDate(key) ? "추가근무" : "야근";
+}
+
+function calculateOvertimeHours(startTime,endTime,key){
   const end=parseTimeMinutes(endTime);
   if(end===null) return 0;
 
-  // 회사 규칙
-  // 18:00 정시퇴근
-  // 18:00~19:00 저녁시간 제외
-  // 19:00~22:00만 인정
-  // 완료된 1시간 단위만 인정
-  // 하루 최대 3시간
+  // 주말·공휴일 출근은 근무한 시간 전체를 추가수당으로 인정한다.
+  //   출근~퇴근을 완료된 1시간 단위로 계산 · 하루 최대 8시간
+  //   (출근시간이 없으면 근무한 길이를 알 수 없어 0으로 둔다)
+  if(isHolidayWorkDate(key)){
+    const start=parseTimeMinutes(startTime);
+    if(start===null) return 0;
+    const worked=Math.max(0,end-start);
+    return Math.min(HOLIDAY_WORK_CAP,Math.floor(worked/60));
+  }
+
+  // 평일 야근 인정은 '퇴근시간'만으로 계산한다.
+  // 출근시간이 비어 있어도 퇴근시간이 있으면 정상 계산된다.
+  //   18:00 정시퇴근 · 18:00~19:00 저녁시간 제외 · 19:00~22:00만 인정
+  //   완료된 1시간 단위만 인정 · 하루 최대 3시간
   const overtimeStart=19*60;   // 19:00
   const overtimeCutoff=22*60;  // 22:00
 
   const recognizedEnd=Math.min(end,overtimeCutoff);
   const eligibleMinutes=Math.max(0,recognizedEnd-overtimeStart);
 
-  return Math.min(3,Math.floor(eligibleMinutes/60));
+  return Math.min(WEEKDAY_OVERTIME_CAP,Math.floor(eligibleMinutes/60));
 }
 
 function formatHours(hours){
@@ -171,7 +196,7 @@ function getMyDailySummary(key){
   const log=data.dailyLogs?.[key];
   if(log){
     return {
-      overtime_hours:Number(log.overtime_hours ?? calculateOvertimeHours(log.start_time,log.end_time)),
+      overtime_hours:Number(log.overtime_hours ?? calculateOvertimeHours(log.start_time,log.end_time,key)),
       work_status:log.work_status || data.records?.[key]?.category || "정상근무"
     };
   }
@@ -192,7 +217,7 @@ function overtimeHoursForMonth(monthDate){
 
   if(teamCloud.configured && teamCloud.user){
     for(const [date,value] of teamCloud.myOvertimeByDate.entries()){
-      if(date.startsWith(prefix)) hours += recognizedHours(value);
+      if(date.startsWith(prefix)) hours += recognizedHours(value,date);
     }
   }else{
     const keys=new Set([
@@ -201,7 +226,7 @@ function overtimeHoursForMonth(monthDate){
     ]);
     for(const date of keys){
       if(date.startsWith(prefix)){
-        hours += recognizedHours(getMyDailySummary(date).overtime_hours);
+        hours += recognizedHours(getMyDailySummary(date).overtime_hours,date);
       }
     }
   }
@@ -222,14 +247,22 @@ function payrollOvertimeMonth(){
 function updateDailyOvertimePreview(){
   const start=$("daily_start_time")?.value||"";
   const end=$("daily_end_time")?.value||"";
-  const hours=calculateOvertimeHours(start,end);
+  const hours=calculateOvertimeHours(start,end,dailyLogDate);
+  const holidayWork=isHolidayWorkDate(dailyLogDate);
+  const label=overtimeLabelForDate(dailyLogDate);
   const preview=$("dailyOvertimePreview");
   const rule=$("dailyOvertimeRule");
   const mini=$("dailyOvertimeMini");
+  const title=$("dailyOvertimeTitle");
 
   if(preview) preview.textContent=`${formatHours(hours)}시간`;
-  if(rule) rule.textContent="20:00=1h · 21:00=2h · 22:00=3h";
-  if(mini) mini.textContent=`자동 야근 ${formatHours(hours)}h`;
+  if(title) title.textContent=`자동 계산 ${label}`;
+  if(rule){
+    rule.textContent=holidayWork
+      ? "주말·공휴일 출근 · 출근~퇴근 1시간 단위 · 최대 8h"
+      : "20:00=1h · 21:00=2h · 22:00=3h";
+  }
+  if(mini) mini.textContent=`자동 ${label} ${formatHours(hours)}h`;
   return hours;
 }
 

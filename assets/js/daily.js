@@ -104,7 +104,7 @@ function renderDailyRows(members, logs, editableUserId){
             <input id="daily_start_time" type="time" value="${escapeHtml(log.start_time||"")}" />
             <label style="text-align:left;margin-top:9px">퇴근</label>
             <input id="daily_end_time" type="time" value="${escapeHtml(log.end_time||"")}" />
-            <div class="auto-ot-mini" id="dailyOvertimeMini">자동 야근 ${formatHours(log.overtime_hours||0)}h</div>
+            <div class="auto-ot-mini" id="dailyOvertimeMini">자동 ${overtimeLabelForDate(dailyLogDate)} ${formatHours(log.overtime_hours||0)}h</div>
             <div style="font-size:9px;color:var(--muted);margin-top:5px">퇴근시간 입력 즉시 자동 계산</div>
           `;
         }else{
@@ -113,7 +113,7 @@ function renderDailyRows(members, logs, editableUserId){
             <strong>${escapeHtml(log.start_time||"-")}</strong>
             <div style="font-size:11px;color:var(--muted);margin:10px 0 4px">퇴근</div>
             <strong>${escapeHtml(log.end_time||"-")}</strong>
-            <div class="auto-ot-mini">자동 야근 ${formatHours(log.overtime_hours||0)}h</div>
+            <div class="auto-ot-mini">자동 ${overtimeLabelForDate(dailyLogDate)} ${formatHours(log.overtime_hours||0)}h</div>
           `;
         }
         tr.appendChild(tdTime);
@@ -216,7 +216,7 @@ function returnToMonthlyAfterDailySave(){
 async function saveMyDailyLog(){
   const startTime=$("daily_start_time")?.value||null;
   const endTime=$("daily_end_time")?.value||null;
-  const overtimeHours=calculateOvertimeHours(startTime,endTime);
+  const overtimeHours=calculateOvertimeHours(startTime,endTime,dailyLogDate);
   updateDailyOvertimePreview();
 
   const payload={
@@ -260,7 +260,7 @@ async function saveMyDailyLog(){
     renderSummary();
     renderPayBreakdown();
     renderLeavePage();
-    setDailyMessage(`내 업무일지를 저장했어. 퇴근 ${endTime||"-"} → 인정 야근 ${formatHours(overtimeHours)}시간`);
+    setDailyMessage(`내 업무일지를 저장했어. 퇴근 ${endTime||"-"} → 인정 ${overtimeLabelForDate(dailyLogDate)} ${formatHours(overtimeHours)}시간`);
 
     // 오늘 일지에 퇴근시간을 넣어 저장하면 상태바를 자동으로 '퇴근'으로 내린다.
     if(endTime && dailyLogDate===dateKey(new Date())) await setMyStatus("off",true);
@@ -279,7 +279,7 @@ async function saveMyDailyLog(){
     renderSummary();
     renderPayBreakdown();
     renderLeavePage();
-    setDailyMessage(`이 브라우저에 업무일지를 저장했어. 퇴근 ${endTime||"-"} → 인정 야근 ${formatHours(overtimeHours)}시간`);
+    setDailyMessage(`이 브라우저에 업무일지를 저장했어. 퇴근 ${endTime||"-"} → 인정 ${overtimeLabelForDate(dailyLogDate)} ${formatHours(overtimeHours)}시간`);
     returnToMonthlyAfterDailySave();
   }
 }

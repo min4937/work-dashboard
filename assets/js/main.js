@@ -189,6 +189,7 @@ async function reloadForViewMonth(fullYear=false){
   if(teamCloud.configured && teamCloud.user){
     await loadMyLoggedDates(fullYear ? viewDate.getFullYear() : undefined);
     await loadTeamMonthLogs();
+    await loadCalendarEvents();
   }
   renderAll();
 }
@@ -232,6 +233,7 @@ $("importFile").addEventListener("change",async(e)=>{
       records:obj.records,
       dailyLogs:obj.dailyLogs||{},
       weeklyMemos:obj.weeklyMemos||{},
+      events:obj.events||{},
       updatedAt:new Date().toISOString()
     };
     applyFixedOvertimeRules();
@@ -326,6 +328,20 @@ STATUS_ORDER.forEach(status=>{
 /* ------------------------------------------------------------ 출·퇴근 기록 */
 
 $("saveNotice").addEventListener("click",saveTeamNotice);
+$("editNotice").addEventListener("click",startNoticeEdit);
+
+
+/* --------------------------------------------------------------- 중요일정 */
+
+$("saveEvent").addEventListener("click",saveCalendarEvent);
+$("deleteEvent").addEventListener("click",deleteCalendarEvent);
+$("closeEventModal").addEventListener("click",closeEventModal);
+$("eventModal").addEventListener("click",e=>{
+  if(e.target===$("eventModal")) closeEventModal();
+});
+$("eventTitleInput").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){ e.preventDefault(); saveCalendarEvent(); }
+});
 
 $("stampStartTime").addEventListener("click",()=>stampWorkTime("start"));
 $("stampEndTime").addEventListener("click",()=>stampWorkTime("end"));

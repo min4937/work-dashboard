@@ -180,6 +180,28 @@ function memberEntriesForDate(key){
   }];
 }
 
+/* 중요일정 칩 · 개인/팀 공유를 색으로 구분한다. */
+function appendDayEvents(cell,key){
+  const events=eventEntriesForDate(key);
+  if(!events.length) return;
+
+  events.forEach(event=>{
+    const chip=document.createElement("div");
+    chip.className=`chip event ${event.visibility==="team"?"team":"personal"}`;
+    chip.textContent=event.title;
+    chip.title=[
+      event.title,
+      event.visibility==="team" ? "팀 공유 일정" : "개인 일정",
+      event.mine===false ? eventOwnerName(event.user_id) : ""
+    ].filter(Boolean).join(" · ");
+    chip.addEventListener("click",e=>{
+      e.stopPropagation();
+      openEventModal(key,event);
+    });
+    cell.appendChild(chip);
+  });
+}
+
 function appendDayMembers(cell,key){
   const entries=memberEntriesForDate(key);
   if(!entries.length) return;
@@ -269,7 +291,7 @@ function renderAnnualCalendar(){
         day.classList.add("has-daily-log");
         const summary=getMyDailySummary(key);
         const bits=[];
-        if(Number(summary.overtime_hours)>0) bits.push(`야근 ${formatHours(summary.overtime_hours)}h`);
+        if(Number(summary.overtime_hours)>0) bits.push(`${overtimeLabelForDate(key)} ${formatHours(summary.overtime_hours)}h`);
         if(leaveDaysForCategory(summary.work_status)>0) bits.push(leaveStatusLabel(summary.work_status));
         day.title=[getHoliday(key),...bits].filter(Boolean).join(" · ");
       }
@@ -336,6 +358,18 @@ function renderCalendar(){
 
       cell.innerHTML=`<div class="num">${d.getDate()}</div>`;
 
+      // 중요일정 추가 버튼 (업무일지 이동과 겹치지 않게 클릭을 가로챈다)
+      const addEvent=document.createElement("button");
+      addEvent.type="button";
+      addEvent.className="day-add-event";
+      addEvent.textContent="+";
+      addEvent.title="이 날짜에 중요일정 추가";
+      addEvent.addEventListener("click",e=>{
+        e.stopPropagation();
+        openEventModal(key);
+      });
+      cell.appendChild(addEvent);
+
       if(d.getMonth()===m && isPaydayDate(d)){
         const star=document.createElement("span");
         star.className="payday-star";
@@ -357,10 +391,12 @@ function renderCalendar(){
         cell.appendChild(c);
       }
 
+      appendDayEvents(cell,key);
+
       if(Number(summary.overtime_hours)>0){
         const c=document.createElement("div");
         c.className="chip ot";
-        c.textContent=`야근 ${formatHours(summary.overtime_hours)}h`;
+        c.textContent=`${overtimeLabelForDate(key)} ${formatHours(summary.overtime_hours)}h`;
         cell.appendChild(c);
       }
 

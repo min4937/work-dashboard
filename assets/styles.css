@@ -247,6 +247,30 @@
   .chip.note{background:var(--blue-soft);color:#275eae}
   .chip.holiday{background:var(--red-soft);color:var(--red);font-weight:900}
 
+  /* 중요일정 */
+  .chip.event{
+    cursor:pointer;font-weight:800;white-space:normal;line-height:1.4;
+    border-left:3px solid transparent
+  }
+  .chip.event.personal{background:#fff4e0;color:#8a5a12;border-left-color:#f0a92c}
+  .chip.event.team{background:#e8f3ff;color:#1c4f96;border-left-color:#2563eb}
+  .chip.event:hover{filter:brightness(.97)}
+  .legend-chip{
+    width:16px;height:9px;border-radius:3px;display:inline-block;
+    border-left:3px solid transparent
+  }
+  .legend-chip.event.personal{background:#fff4e0;border-left-color:#f0a92c}
+  .legend-chip.event.team{background:#e8f3ff;border-left-color:#2563eb}
+
+  .day-add-event{
+    position:absolute;top:5px;right:5px;width:20px;height:20px;padding:0;
+    border:1px solid var(--line);border-radius:6px;background:#fff;
+    color:var(--muted);font-size:13px;font-weight:900;line-height:1;
+    cursor:pointer;font-family:inherit;opacity:.35;transition:opacity .12s
+  }
+  .day:hover .day-add-event,.day-add-event:focus{opacity:1}
+  .day-add-event:hover{border-color:#2563eb;color:#2563eb;background:rgba(37,99,235,.08)}
+
   /* 월간일정표 상단: 왼쪽 요약카드 · 오른쪽 팀 공지사항 */
   .schedule-top{
     display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);
@@ -259,14 +283,16 @@
     display:flex;justify-content:space-between;align-items:baseline;
     gap:10px;flex-wrap:wrap;margin-bottom:12px
   }
+  .notice-head-right{display:flex;align-items:center;gap:8px}
   .notice-meta{font-size:11px;color:var(--muted);font-weight:800}
+  /* 저장을 마치면 입력칸 테두리를 없애 '작성 완료' 상태로 보이게 한다 */
   .notice-view{
-    flex:1;font-size:13px;line-height:1.7;overflow:auto;max-height:210px
+    flex:1;font-size:13px;line-height:1.7;overflow:auto;max-height:180px
   }
   .notice-view ul{margin:0;padding-left:18px}
   .notice-view li{margin-bottom:4px}
   #noticeInput{
-    resize:vertical;min-height:96px;font-size:13px;line-height:1.7;
+    resize:vertical;min-height:72px;font-size:13px;line-height:1.7;
     font-family:inherit
   }
   .notice-actions{

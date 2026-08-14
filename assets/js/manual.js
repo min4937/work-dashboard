@@ -8,6 +8,20 @@
    팀과 소유자를 판정한다.
    ============================================================================ */
 
+/* 올릴 수 있는 파일 형식. index.html 의 안내문·accept 속성과 같이 관리한다. */
+const ALLOWED_FILE_EXTENSIONS=[
+  "pdf","hwp","hwpx","doc","docx","xls","xlsx","ppt","pptx","txt","csv",
+  "jpg","jpeg","png","gif","webp","heic",
+  "dwg","dxf",
+  "zip","7z","rar"
+];
+const MAX_FILE_SIZE=50*1024*1024;
+
+function fileExtension(name){
+  const parts=String(name||"").split(".");
+  return parts.length>1 ? parts.pop().toLowerCase() : "";
+}
+
 function formatFileSize(bytes){
   const n=Number(bytes||0);
   if(n<1024) return `${n} B`;
@@ -89,7 +103,16 @@ async function uploadManualFile(){
   const input=$("manualFileInput");
   const file=input.files?.[0];
   if(!file){ setManualMessage("파일을 선택해줘.",true); return; }
-  if(file.size>50*1024*1024){ setManualMessage("파일은 50MB 이하로 올려줘.",true); return; }
+  if(file.size>MAX_FILE_SIZE){ setManualMessage("파일은 50MB 이하로 올려줘.",true); return; }
+
+  const ext=fileExtension(file.name);
+  if(!ALLOWED_FILE_EXTENSIONS.includes(ext)){
+    setManualMessage(
+      `.${ext||"확장자 없음"} 은 올릴 수 없어. 지원 형식: ${ALLOWED_FILE_EXTENSIONS.join(", ")}`,
+      true
+    );
+    return;
+  }
 
   const btn=$("uploadManualFile");
   btn.disabled=true;

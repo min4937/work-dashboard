@@ -19,6 +19,7 @@ assets/
     calendar.js          월간 달력(팀원 근무상황 표시) · 연간달력 모달 · 주간 메모
     manual.js            메뉴얼 및 서식 파일
     notice.js            팀 공지사항 (팀장만 작성)
+    events.js            달력 중요일정 (개인 / 팀 공유)
     status.js            근무 상태바 (출근/자리비움/외근/퇴근) · 출·퇴근 시각 기록
     cloud.js             Supabase 클라이언트 · 프로필 · 팀 정보
     auth.js              회원가입 · 로그인 · 팀 생성/참여
@@ -28,6 +29,7 @@ supabase/
   schema.sql             테이블 · RLS 정책 · RPC · Storage · 공휴일
   patch-2026-08-field-status.sql   기존 프로젝트에 '외근' 상태 허용
   patch-2026-08-team-notices.sql   기존 프로젝트에 팀 공지사항 테이블 추가
+  patch-2026-08-calendar-events.sql 기존 프로젝트에 중요일정 테이블 추가
 ```
 
 스크립트는 ES 모듈이 아니라 순서대로 로드되는 전역 스크립트다. `index.html` 하단의
@@ -92,6 +94,8 @@ python -m http.server 8000
 | 연차 **신청 현황** | `leave_requests` | 같은 팀 전원 | 본인만 |
 | 근무 상태 (초록/노랑/보라/회색) | `member_status` | 같은 팀 전원 | 본인만 |
 | 팀 공지사항 | `team_notices` | 같은 팀 전원 | **팀장만** |
+| 중요일정 (팀 공유) | `calendar_events` | 같은 팀 전원 | 만든 사람만 |
+| 중요일정 (개인) | `calendar_events` | **본인만** | 본인만 |
 | 이름·직급 | `profiles` | 같은 팀 전원 | 본인만 |
 | 공유 문서 | `team_files` + Storage | 같은 팀 전원 | 올린 사람만 삭제 |
 | 팀 이름 | `teams` | 같은 팀 전원 | 팀장만 |
@@ -105,11 +109,36 @@ python -m http.server 8000
 공유 문서는 `<team_id>/<user_id>/<파일명>` 경로에 저장되고, Storage 정책이 이 경로로
 팀과 소유자를 판정한다. 업로드는 팀원 누구나, 삭제는 올린 사람만 할 수 있다.
 
+## 중요일정
+
+월간일정표 날짜칸 오른쪽 위의 `+` 로 등록한다. 일일업무일지와는 별개이며 저장할 때
+공개 범위를 고른다.
+
+| 공개 범위 | 보이는 사람 | 고치는 사람 |
+|---|---|---|
+| 개인 일정 | 나만 | 나만 |
+| 팀 공유 | 같은 팀 전원 | 만든 사람만 |
+
+일정 칩을 누르면 수정·삭제 창이 열린다. 남이 만든 팀 공유 일정은 읽기 전용이다.
+로그인 전에는 이 브라우저(localStorage)에만 저장된다.
+
+> 기존 프로젝트는 `supabase/patch-2026-08-calendar-events.sql`을 한 번 실행해야 한다.
+
+## 공유 파일 형식
+
+문서 `pdf hwp hwpx doc docx xls xlsx ppt pptx txt csv` ·
+이미지 `jpg jpeg png gif webp heic` · 도면 `dwg dxf` · 압축 `zip 7z rar`,
+한 파일당 50MB 이하. 목록은 `manual.js`의 `ALLOWED_FILE_EXTENSIONS`와
+업로드 입력칸의 `accept` 속성에 함께 적혀 있으니 바꿀 때 두 곳을 같이 고친다.
+
 ## 팀 공지사항
 
 월간일정표 오른쪽 패널. 팀당 한 건이고 **팀장만** 쓸 수 있다. 팀원에게는 읽기 전용으로
 보이며, 화면뿐 아니라 `team_notices`의 RLS 정책(`is_team_leader()`)으로도 막혀 있다.
 팀장이 저장하면 Realtime으로 팀원 화면에 즉시 반영된다.
+
+팀장 화면은 두 가지 모드다. `작성 완료`를 누르면 입력칸 테두리가 사라지고 읽기 모드로
+바뀌며, 다시 고치려면 `수정`을 누른다.
 
 > 기존 프로젝트는 `supabase/patch-2026-08-team-notices.sql`을 한 번 실행해야 한다.
 
@@ -145,13 +174,22 @@ insert into public.holidays (holiday_date, name) values
 on conflict (holiday_date) do nothing;
 ```
 
-### 야근 인정 규칙
+### 야근 · 추가수당 인정 규칙
 코드에 고정돼 있다 (`state.js`의 `applyFixedOvertimeRules`,
-`payroll.js`의 `calculateOvertimeHours`).
+`payroll.js`의 `calculateOvertimeHours` · `overtimeCapForDate`).
 
+**평일**
 - 18:00 정시 퇴근 / 18:00~19:00 저녁시간 제외
 - 19:00~22:00 구간만 인정, 완료된 1시간 단위로만 계산
 - 하루 최대 3시간 (20:00→1h, 21:00→2h, 22:00→3h)
+- 퇴근시간만 있으면 계산된다
+
+**주말(토·일) · 공휴일 출근**
+- 출근~퇴근 시간을 완료된 1시간 단위로 인정, 하루 최대 8시간
+- 길이를 알아야 하므로 **출근시간이 없으면 0시간**으로 둔다
+- 달력·업무일지에서 `야근` 대신 `추가근무`로 표시된다
+
+두 경우 모두 야근비 단가(`hourlyOvertime`)를 그대로 곱한다. 즉 추가수당 = 야근비다.
 
 ### 급여 반영 시점
 이번 달 급여에는 **전월** 야근비가 포함된다 (`payrollOvertimeMonth`).

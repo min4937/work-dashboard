@@ -69,6 +69,7 @@ async function pullUserState() {
         records: row.records || {},
         dailyLogs: data.dailyLogs || {},
         weeklyMemos: row.weekly_memos || {},
+        events: data.events || {},
         updatedAt: row.updated_at
       };
       applyFixedOvertimeRules();
@@ -134,6 +135,7 @@ function restorePreSyncBackup() {
       records: parsed.records || {},
       dailyLogs: parsed.dailyLogs || {},
       weeklyMemos: parsed.weeklyMemos || {},
+      events: parsed.events || {},
       updatedAt: new Date().toISOString()
     };
     applyFixedOvertimeRules();

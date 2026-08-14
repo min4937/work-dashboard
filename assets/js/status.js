@@ -115,7 +115,7 @@ async function saveMyTimes(patch, key = dateKey(new Date())) {
     start_time: patch.start_time !== undefined ? (patch.start_time || "") : current.start_time,
     end_time: patch.end_time !== undefined ? (patch.end_time || "") : current.end_time
   };
-  const overtimeHours = calculateOvertimeHours(next.start_time, next.end_time);
+  const overtimeHours = calculateOvertimeHours(next.start_time, next.end_time, key);
 
   if (teamCloud.configured && teamCloud.user) {
     const { error } = await teamCloud.client.from("daily_logs").upsert({
@@ -201,9 +201,10 @@ function renderWorkTimeBox() {
 
   const note = $("workTimeNote");
   if (note) {
-    const hours = calculateOvertimeHours(times.start_time, times.end_time);
+    const today = dateKey(new Date());
+    const hours = calculateOvertimeHours(times.start_time, times.end_time, today);
     note.textContent = times.end_time
-      ? `퇴근 ${times.end_time} · 인정 야근 ${formatHours(hours)}시간`
+      ? `퇴근 ${times.end_time} · 인정 ${overtimeLabelForDate(today)} ${formatHours(hours)}시간`
       : "출근·퇴근 버튼을 누르면 그 시각이 자동으로 기록돼.";
   }
 }

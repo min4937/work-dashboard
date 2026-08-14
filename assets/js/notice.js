@@ -5,6 +5,9 @@
    쓰기 권한은 화면뿐 아니라 team_notices 의 RLS 정책으로도 막혀 있다.
    ============================================================================ */
 
+// 팀장이 지금 공지를 고치고 있는가 (저장하면 다시 읽기 모드로 돌아간다)
+let noticeEditing=false;
+
 function noticeUpdaterName(userId){
   if(!userId) return "";
   if(userId===teamCloud.user?.id) return "나";
@@ -32,6 +35,7 @@ function renderNoticePanel(){
   const view=$("noticeView");
   const edit=$("noticeEditArea");
   const meta=$("noticeMeta");
+  const editBtn=$("editNotice");
   if(!lock||!view||!edit) return;
 
   // 로그인 전 · 팀 미소속
@@ -43,6 +47,7 @@ function renderNoticePanel(){
     view.style.display="none";
     edit.style.display="none";
     if(meta) meta.textContent="";
+    if(editBtn) editBtn.style.display="none";
     return;
   }
 
@@ -56,17 +61,33 @@ function renderNoticePanel(){
     meta.textContent=content.trim() && when ? `${when} · ${who}` : "";
   }
 
-  if(teamCloud.isLeader){
+  // 팀장이라도 저장을 마치면 읽기 모드로 보여서 '작성 완료' 느낌이 나게 한다.
+  const editMode=teamCloud.isLeader && (noticeEditing || !content.trim());
+
+  if(editMode){
     view.style.display="none";
     edit.style.display="block";
+    if(editBtn) editBtn.style.display="none";
     const input=$("noticeInput");
     if(input && document.activeElement!==input) input.value=content;
   }else{
     edit.style.display="none";
     view.style.display="block";
+    if(editBtn) editBtn.style.display=teamCloud.isLeader ? "inline-block" : "none";
     view.innerHTML=content.trim()
       ? workTextHtml(content)
       : '<div class="empty">아직 등록된 공지사항이 없어.</div>';
+  }
+}
+
+function startNoticeEdit(){
+  noticeEditing=true;
+  setNoticeMessage("");
+  renderNoticePanel();
+  const input=$("noticeInput");
+  if(input){
+    input.focus();
+    input.setSelectionRange(input.value.length,input.value.length);
   }
 }
 
@@ -108,6 +129,7 @@ async function saveTeamNotice(){
   const button=$("saveNotice");
   button.disabled=true;
   button.textContent="저장 중...";
+  const restore=()=>{ button.disabled=false; button.textContent="작성 완료"; };
 
   const payload={
     team_id:teamCloud.teamId,
@@ -120,8 +142,7 @@ async function saveTeamNotice(){
     .from("team_notices")
     .upsert(payload,{onConflict:"team_id"});
 
-  button.disabled=false;
-  button.textContent="공지 저장";
+  restore();
 
   if(error){
     console.error(error);
@@ -130,8 +151,9 @@ async function saveTeamNotice(){
   }
 
   teamCloud.notice=payload;
+  noticeEditing=false;
   renderNoticePanel();
-  setNoticeMessage("공지사항을 저장했어. 팀원 화면에도 바로 보여.");
+  setNoticeMessage("");
 }
 
 function subscribeNoticeRealtime(){

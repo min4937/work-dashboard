@@ -34,7 +34,7 @@ const defaultSettings = {
   payDay:25
 };
 
-const defaultData = { settings:{...defaultSettings}, records:{}, dailyLogs:{}, weeklyMemos:{}, updatedAt:"1970-01-01T00:00:00.000Z" };
+const defaultData = { settings:{...defaultSettings}, records:{}, dailyLogs:{}, weeklyMemos:{}, events:{}, updatedAt:"1970-01-01T00:00:00.000Z" };
 
 // 내장 공휴일 데이터가 있는 연도. 이 연도들은 holidayData 가 완전하다고 보고
 // 양력 고정 공휴일 폴백을 쓰지 않는다. (cloudHolidayYears 는 sync.js 가 채운다)
@@ -142,6 +142,7 @@ let teamCloud = {
   myTimesByDate:new Map(),      // 날짜 → {start_time,end_time}
   teamDayLogs:new Map(),        // 날짜 → [{user_id,display_name,job_title,sort_order,work_status,start_time,end_time}]
   teamLogsMonth:"",             // teamDayLogs 에 담긴 달 (YYYY-MM)
+  eventsByDate:new Map(),       // 날짜 → [{id,user_id,title,visibility,mine}]
   notice:null,                  // 팀 공지사항 {content,updated_by,updated_at}
   channel:null,
   weeklyChannel:null,
@@ -191,6 +192,7 @@ function loadData(){
         records:parsed.records||{},
         dailyLogs:parsed.dailyLogs||{},
         weeklyMemos:parsed.weeklyMemos||{},
+        events:parsed.events||{},
         updatedAt:parsed.updatedAt||"1970-01-01T00:00:00.000Z"
       };
     }
@@ -222,9 +224,10 @@ function getHoliday(key){
   return fixedHolidayNames[key.slice(5)] || "";
 }
 
-function recognizedHours(raw){
+/* 하루 인정 한도로 자른다. 평일 3시간, 주말·공휴일 출근은 8시간까지. */
+function recognizedHours(raw,key){
   let h=Math.max(0,Number(raw||0));
-  const cap=Number(data.settings.dailyCap||0);
+  const cap=key ? overtimeCapForDate(key) : Number(data.settings.dailyCap||0);
   if(cap>0) h=Math.min(h,cap);
   return h;
 }

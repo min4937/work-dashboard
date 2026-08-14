@@ -106,7 +106,10 @@
           <div class="panel-inner">
             <div class="notice-head">
               <h2 class="section-title" style="margin:0">팀 공지사항</h2>
-              <span class="notice-meta" id="noticeMeta"></span>
+              <div class="notice-head-right">
+                <span class="notice-meta" id="noticeMeta"></span>
+                <button class="mini-btn" id="editNotice" style="display:none">수정</button>
+              </div>
             </div>
 
             <div class="shared-lock" id="noticeLock">팀 로그인 후 공지사항을 볼 수 있어.</div>
@@ -114,11 +117,11 @@
             <div class="notice-view" id="noticeView" style="display:none"></div>
 
             <div id="noticeEditArea" style="display:none">
-              <textarea id="noticeInput" rows="6" maxlength="2000"
+              <textarea id="noticeInput" rows="3" maxlength="2000"
                 placeholder="팀에 알릴 내용을 적어. 한 줄에 하나씩 쓰면 보기 좋아."></textarea>
               <div class="notice-actions">
                 <span class="notice-message" id="noticeMessage"></span>
-                <button class="btn primary" id="saveNotice">공지 저장</button>
+                <button class="btn primary" id="saveNotice">작성 완료</button>
               </div>
             </div>
           </div>
@@ -130,7 +133,9 @@
           <div class="calendar-toolbar">
             <h2 class="section-title" style="margin:0">월간 캘린더</h2>
             <div class="member-legend">
-              <span><span class="member-icon">🌴</span>휴가</span>
+              <span><span class="legend-chip event personal"></span>개인일정</span>
+              <span><span class="legend-chip event team"></span>팀 공유</span>
+              <span><span class="member-icon">🌴</span>연차</span>
               <span><span class="member-icon">🚗</span>외근</span>
               <span><span class="member-icon">💼</span>출근</span>
             </div>
@@ -146,8 +151,10 @@
             <div class="calendar" id="calendar"></div>
           </div>
           <div class="help" style="margin-top:12px">
-            날짜 칸에는 그날 일일업무일지를 쓴 팀원이 🌴휴가 · 🚗외근 · 💼출근 아이콘과 함께 표시돼. 상단의 <strong>년·월 라벨을 누르면 연간달력</strong>이 열려.
-            개나리색 점은 일일업무일지 작성 완료, 분홍색 ★은 월급날이야. 월급날이 토·일·공휴일이면 직전 평일로 자동 조정돼. 월요일 왼쪽의 주간메모는 체크리스트형이고, 항목과 체크 상태가 자동 저장돼. 야근은 19:00~22:00 사이의 완료된 1시간 단위만 인정하며 하루 최대 3시간으로 자동 계산돼.
+            날짜칸 오른쪽 위의 <strong>+</strong> 를 누르면 중요일정을 등록할 수 있어. 저장할 때 개인 일정과 팀 공유 중에서 고르고, 등록한 일정을 누르면 고치거나 지울 수 있어.
+            그날 일일업무일지를 쓴 팀원은 🌴연차 · 🚗외근 · 💼출근 아이콘과 함께 표시돼. 상단의 <strong>년·월 라벨을 누르면 연간달력</strong>이 열려.
+            개나리색 점은 일일업무일지 작성 완료, 분홍색 ★은 월급날이야. 월급날이 토·일·공휴일이면 직전 평일로 자동 조정돼. 월요일 왼쪽의 주간메모는 체크리스트형이고, 항목과 체크 상태가 자동 저장돼.
+            평일 야근은 19:00~22:00 사이의 완료된 1시간 단위만 인정해 하루 최대 3시간, <strong>주말·공휴일 출근은 출근~퇴근 시간을 1시간 단위로 하루 최대 8시간</strong>까지 추가수당으로 인정돼.
           </div>
         </div>
       </section>
@@ -192,7 +199,7 @@
               </select>
             </div>
             <div class="auto-overtime-box">
-              <span>자동 계산 야근</span>
+              <span id="dailyOvertimeTitle">자동 계산 야근</span>
               <strong id="dailyOvertimePreview">0시간</strong>
               <small id="dailyOvertimeRule">20:00=1h · 21:00=2h · 22:00=3h</small>
             </div>
@@ -268,10 +275,17 @@
         <div id="manualLoginNotice" class="shared-lock">팀 계정으로 로그인하면 파일 업로드와 다운로드를 사용할 수 있어.</div>
         <div id="manualUploadArea" style="display:none">
           <div class="file-upload-grid">
-            <div class="field"><label for="manualFileInput">파일 선택</label><input id="manualFileInput" type="file"></div>
+            <div class="field"><label for="manualFileInput">파일 선택</label><input id="manualFileInput" type="file" accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.heic,.dwg,.dxf,.zip,.7z,.rar"></div>
             <div class="field"><label for="manualFileCategory">분류</label><select id="manualFileCategory"><option>메뉴얼</option><option>서식</option><option>참고자료</option><option>기타</option></select></div>
           </div>
           <div class="field" style="margin-top:10px"><label for="manualFileNote">설명 (선택)</label><input id="manualFileNote" type="text" maxlength="200" placeholder="예: 실시설계 보고서 표준 목차"></div>
+          <div class="settings-note" style="margin-top:10px">
+            <strong>지원 파일 형식</strong> · 한 파일당 50MB 이하<br>
+            문서 : pdf · hwp · hwpx · doc · docx · xls · xlsx · ppt · pptx · txt · csv<br>
+            이미지 : jpg · jpeg · png · gif · webp · heic<br>
+            도면 : dwg · dxf<br>
+            압축 : zip · 7z · rar
+          </div>
           <button class="btn primary" id="uploadManualFile" style="margin-top:10px">파일 업로드</button><div class="upload-progress" id="manualUploadMessage"></div>
         </div>
       </div></section>
@@ -355,9 +369,11 @@
               <div class="field"><label for="hourlyOvertime">야근 시급</label><input id="hourlyOvertime" type="number" min="0" step="100" /></div>
             </div>
             <div class="settings-note" style="margin-bottom:13px">
-              <strong>야근 인정 기준</strong><br>
-              18:00 정시 퇴근 · 18:00~19:00 저녁시간 제외 · 19:00~22:00만 인정 ·
-              1시간 단위로만 계산 · 하루 최대 3시간 인정
+              <strong>야근 · 추가수당 인정 기준</strong><br>
+              평일 : 18:00 정시 퇴근 · 18:00~19:00 저녁시간 제외 · 19:00~22:00만 인정 ·
+              1시간 단위로만 계산 · 하루 최대 3시간<br>
+              주말·공휴일 출근 : 출근~퇴근 시간을 1시간 단위로 계산 · 하루 최대 8시간
+              (출근시간을 넣어야 계산돼)
             </div>
             <div class="field">
               <label for="monthlyCap">월 야근 인정 한도</label>
@@ -490,6 +506,38 @@
 
 
 
+
+  <div class="modal-backdrop" id="eventModal" aria-hidden="true">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle" style="max-width:460px">
+      <h2 id="eventModalTitle">일정 추가</h2>
+      <p class="lead" id="eventDateLabel"></p>
+
+      <div class="field">
+        <label for="eventTitleInput">일정 내용</label>
+        <input id="eventTitleInput" type="text" maxlength="100" placeholder="예: 실시설계 납품, 현장 점검" />
+      </div>
+
+      <div class="field">
+        <label for="eventVisibility">공개 범위</label>
+        <select id="eventVisibility">
+          <option value="personal">개인 일정 (나만 보기)</option>
+          <option value="team">팀 공유 (팀원 전체가 봄)</option>
+        </select>
+      </div>
+
+      <div class="settings-note" id="eventShareNote"></div>
+      <div class="notice-message" id="eventOwnerNote" style="margin-top:8px"></div>
+      <div class="notice-message" id="eventMessage" style="margin-top:8px"></div>
+
+      <div class="modal-actions">
+        <button class="btn" id="closeEventModal">닫기</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn danger" id="deleteEvent" style="display:none">삭제</button>
+          <button class="btn primary" id="saveEvent">저장</button>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <div class="modal-backdrop" id="annualModal" aria-hidden="true">
     <section class="modal annual-modal" role="dialog" aria-modal="true" aria-labelledby="annualModalTitle">
@@ -769,6 +817,7 @@
 <script src="./assets/js/calendar.js"></script>
 <script src="./assets/js/manual.js"></script>
 <script src="./assets/js/notice.js"></script>
+<script src="./assets/js/events.js"></script>
 <script src="./assets/js/status.js"></script>
 <script src="./assets/js/cloud.js"></script>
 <script src="./assets/js/auth.js"></script>

@@ -366,6 +366,7 @@ async function applySignedInState(){
   await syncMyCloudProfile();
   await loadMyLoggedDates(viewDate.getFullYear());
   await loadTeamMonthLogs();
+  await loadCalendarEvents();
   await refreshTeamMembers();
   await loadTeamNotice();
   subscribeStatusRealtime();
@@ -417,6 +418,7 @@ async function initTeamCloud(){
       teamCloud.teamDayLogs=new Map();
       teamCloud.teamLogsMonth="";
       teamCloud.myTimesByDate=new Map();
+      teamCloud.eventsByDate=new Map();
       teamCloud.notice=null;
       renderStatusBar();
       renderAll();

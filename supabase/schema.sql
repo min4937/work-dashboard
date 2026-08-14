@@ -143,6 +143,23 @@ create table if not exists public.team_notices (
   updated_at timestamptz not null default now()
 );
 
+-- 달력의 중요일정 · 업무일지와 별개다.
+--   visibility = 'personal' 나만 본다
+--   visibility = 'team'     같은 팀 전원이 본다 (쓰기는 만든 사람만)
+create table if not exists public.calendar_events (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  team_id    uuid references public.teams(id) on delete cascade,
+  event_date date not null,
+  title      text not null,
+  visibility text not null default 'personal' check (visibility in ('personal', 'team')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists calendar_events_date_idx on public.calendar_events (event_date);
+create index if not exists calendar_events_user_idx on public.calendar_events (user_id);
+
 -- 개인 전체 상태 (설정·급여·연차일수·월간기록·주간메모)
 -- ★ 오직 본인만 읽고 쓴다. 팀장도 열람할 수 없다. ★
 create table if not exists public.user_state (
@@ -226,6 +243,7 @@ alter table public.leave_requests enable row level security;
 alter table public.member_status  enable row level security;
 alter table public.team_files     enable row level security;
 alter table public.team_notices   enable row level security;
+alter table public.calendar_events enable row level security;
 alter table public.user_state     enable row level security;
 alter table public.holidays       enable row level security;
 
@@ -372,6 +390,37 @@ create policy team_notices_update on public.team_notices
   for update to authenticated
   using (team_id = public.current_team_id() and public.is_team_leader())
   with check (team_id = public.current_team_id() and public.is_team_leader());
+
+
+-- calendar_events: 내 일정은 항상, 팀 공유 일정은 같은 팀이면 열람. 쓰기는 만든 사람만.
+drop policy if exists calendar_events_select on public.calendar_events;
+create policy calendar_events_select on public.calendar_events
+  for select to authenticated
+  using (
+    user_id = auth.uid()
+    or (visibility = 'team' and team_id is not null and team_id = public.current_team_id())
+  );
+
+drop policy if exists calendar_events_insert on public.calendar_events;
+create policy calendar_events_insert on public.calendar_events
+  for insert to authenticated
+  with check (
+    user_id = auth.uid()
+    and (visibility = 'personal' or team_id = public.current_team_id())
+  );
+
+drop policy if exists calendar_events_update on public.calendar_events;
+create policy calendar_events_update on public.calendar_events
+  for update to authenticated
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and (visibility = 'personal' or team_id = public.current_team_id())
+  );
+
+drop policy if exists calendar_events_delete on public.calendar_events;
+create policy calendar_events_delete on public.calendar_events
+  for delete to authenticated using (user_id = auth.uid());
 
 
 -- user_state: 읽기까지 본인만. 팀장도 열람 불가.
