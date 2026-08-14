@@ -277,7 +277,8 @@
     gap:14px;align-items:stretch;margin-bottom:14px
   }
   .schedule-top .cards{align-content:start}
-  .notice-panel{margin:0;display:flex}
+  /* 공지 패널은 가로로 늘리지 않고 오른쪽 끝에 붙인다 */
+  .notice-panel{margin:0 0 0 auto;display:flex;width:100%;max-width:400px}
   .notice-panel .panel-inner{display:flex;flex-direction:column;width:100%}
   .notice-head{
     display:flex;justify-content:space-between;align-items:baseline;
