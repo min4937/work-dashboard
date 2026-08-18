@@ -278,7 +278,14 @@ $("submitLeaveRequest").addEventListener("click",submitLeaveRequest);
 $("statsFetch").addEventListener("click",fetchKosisAll);
 $("statsCopyAll").addEventListener("click",copyKosisAll);
 $("statsExport").addEventListener("click",exportKosisJson);
+$("statsUrlApply").addEventListener("click",applyKosisUrl);
+$("statsUrlInput").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){ e.preventDefault(); applyKosisUrl(); }
+});
 $("statsSearchBtn").addEventListener("click",searchKosisTables);
+$("statsSearchKeyword").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){ e.preventDefault(); searchKosisTables(); }
+});
 $("statsTestBtn").addEventListener("click",testKosisIndicator);
 $("statsSaveBtn").addEventListener("click",saveKosisIndicator);
 $("statsToggleAdmin").addEventListener("click",toggleKosisAdmin);

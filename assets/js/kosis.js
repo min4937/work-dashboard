@@ -329,6 +329,72 @@ function exportKosisJson(){
 
 /* ------------------------------------------------------------- 지표 관리 */
 
+/* KOSIS 통계표 주소에서 orgId / tblId / itmId 를 뽑는다.
+
+   KOSIS 는 로그인을 거치면 진짜 주소가 returnurl 안에 통째로 인코딩돼 들어온다.
+     .../statHtml.do?sso=ok&returnurl=https%3A%2F%2F...%26tblId%3DDT_1BPA001%26orgId%3D101%26
+   그래서 returnurl 을 한 겹 풀어 그 안쪽을 먼저 본다. */
+function parseKosisUrl(raw){
+  const text=String(raw||"").trim();
+  if(!text) return null;
+
+  const pick=(src,name)=>{
+    const m=src.match(new RegExp("[?&]"+name+"=([^&#]*)","i"));
+    if(!m) return "";
+    try{ return decodeURIComponent(m[1]); }catch{ return m[1]; }
+  };
+
+  // returnurl 안쪽 주소를 우선하고, 없으면 붙여넣은 주소를 그대로 본다
+  const inner=pick(text,"returnurl");
+  const targets=inner ? [inner,text] : [text];
+  const first=(name)=>{
+    for(const t of targets){ const v=pick(t,name); if(v) return v; }
+    return "";
+  };
+
+  const orgId=first("orgId");
+  const tblId=first("tblId");
+  if(!orgId||!tblId) return null;
+
+  return {orgId,tblId,itmId:first("itm_id")||first("itmId")||""};
+}
+
+/* 붙여넣은 주소를 폼에 채우고, 지역코드 체계까지 메타로 확인해준다. */
+async function applyKosisUrl(){
+  const parsed=parseKosisUrl($("statsUrlInput").value);
+  if(!parsed){
+    setStatsAdminMessage("주소에서 orgId·tblId 를 못 찾았어. KOSIS 통계표 화면의 주소창을 통째로 붙여넣어줘.",true);
+    return;
+  }
+
+  $("statsFormOrgId").value=parsed.orgId;
+  $("statsFormTblId").value=parsed.tblId;
+  if(parsed.itmId && !$("statsFormItmId").value) $("statsFormItmId").value=parsed.itmId;
+
+  const btn=$("statsUrlApply");
+  btn.disabled=true; btn.textContent="확인 중...";
+  setStatsAdminMessage(`orgId ${parsed.orgId} / tblId ${parsed.tblId} 를 읽었어. 통계표 정보를 확인하는 중...`);
+
+  // 지역코드가 2자리인지 8자리인지는 여기서 정해두지 않으면 조회가 통째로 빈다
+  const {data,error}=await teamCloud.client.functions.invoke("kosis-proxy",{
+    body:{action:"meta",orgId:parsed.orgId,tblId:parsed.tblId,type:"OBJ"}
+  });
+
+  btn.disabled=false; btn.textContent="주소에서 읽기";
+
+  if(error||data?.error){
+    setStatsAdminMessage(
+      `orgId ${parsed.orgId} / tblId ${parsed.tblId} 는 채웠어. 다만 통계표 정보를 못 읽었으니 `+
+      `지역코드 체계를 직접 고른 뒤 '연결 시험'으로 확인해줘. (${(error?.message)||data.error})`,true);
+    return;
+  }
+
+  if(data.guessScheme) $("statsFormScheme").value=data.guessScheme;
+  setStatsAdminMessage(
+    `orgId ${parsed.orgId} / tblId ${parsed.tblId} · 지역코드 체계는 `+
+    `${data.guessScheme==="admin8"?"8자리":"2자리"}로 잡았어. 아래 '연결 시험'을 눌러 값이 나오는지 확인해줘.`);
+}
+
 async function searchKosisTables(){
   const kw=$("statsSearchKeyword").value.trim();
   if(!kw){ setStatsAdminMessage("검색어를 입력해줘.",true); return; }
