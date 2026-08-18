@@ -76,6 +76,7 @@
     <button class="top-tab" data-page="dailyLogPage">일일업무일지</button>
     <button class="top-tab" data-page="weeklyLogPage">주간업무일지</button>
     <button class="top-tab" data-page="manualPage">메뉴얼 및 서식</button>
+    <button class="top-tab" data-page="statsPage">통계자료</button>
     <button class="top-tab" data-page="salaryPage">월급</button>
     <button class="top-tab" data-page="leavePage">연차</button>
   </nav>
@@ -295,6 +296,75 @@
       </div></section>
     </section>
 
+    <section class="page-view" id="statsPage">
+      <div class="page-heading"><div><h2>통계자료</h2><p>보고서 양식에 넣을 KOSIS 최신 통계를 지역별로 뽑고, 기준시점·출처가 붙은 본문 문장까지 만들어.</p></div></div>
+
+      <section class="panel"><div class="panel-inner">
+        <div id="statsLoginNotice" class="shared-lock">팀 계정으로 로그인하면 통계자료를 쓸 수 있어.</div>
+        <div id="statsMain" style="display:none">
+          <h2 class="section-title">지역별 최신자료 조회</h2>
+          <div class="stats-toolbar">
+            <div class="field" style="margin:0"><label for="statsRegion">시도</label><select id="statsRegion"></select></div>
+            <button class="btn primary" id="statsFetch">최신자료 조회</button>
+            <button class="btn" id="statsCopyAll">본문 전체 복사</button>
+            <button class="btn" id="statsExport">치환 JSON 내려받기</button>
+          </div>
+          <div class="settings-note" style="margin-top:10px">
+            조회하면 <strong>항상 가장 최근에 공표된 시점</strong>을 가져와. 연도를 직접 고칠 필요 없어.<br>
+            기준시점과 출처는 응답값을 그대로 쓰기 때문에 손으로 옮겨 적다 생기는 오기입이 없어.
+          </div>
+          <div class="stats-message" id="statsMessage"></div>
+          <div class="stats-result" id="statsResult"><div class="empty">시도를 고르고 조회를 눌러줘.</div></div>
+        </div>
+      </div></section>
+
+      <section class="panel" id="statsAdminPanel" style="margin-top:14px;display:none"><div class="panel-inner">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+          <h2 class="section-title" style="margin:0">지표 관리</h2>
+          <button class="btn" id="statsToggleAdmin">펼치기</button>
+        </div>
+
+        <div id="statsAdminBody" style="display:none;margin-top:14px">
+          <div class="settings-note">
+            쓰려는 통계가 목록에 없으면 여기서 찾아 등록해. 한 번 등록하면 지역만 바꿔 계속 재사용할 수 있어.
+          </div>
+
+          <h3 class="section-title" style="margin:16px 0 10px;font-size:14px">1) 통계표 찾기</h3>
+          <div class="stats-toolbar">
+            <div class="field" style="margin:0;flex:1"><label for="statsSearchKeyword">검색어</label><input id="statsSearchKeyword" type="text" placeholder="예: 건설공사비지수, 건축허가, 미분양주택"></div>
+            <button class="btn" id="statsSearchBtn">통계표 검색</button>
+          </div>
+          <div class="stats-search-result" id="statsSearchResult"></div>
+
+          <h3 class="section-title" style="margin:18px 0 10px;font-size:14px">2) 지표로 등록</h3>
+          <div class="stats-form-grid">
+            <div class="field"><label for="statsFormKey">키 (문서 자리표시자)</label><input id="statsFormKey" type="text" placeholder="총인구"></div>
+            <div class="field"><label for="statsFormLabel">표시 이름</label><input id="statsFormLabel" type="text" placeholder="총인구"></div>
+            <div class="field"><label for="statsFormOrgId">기관코드 orgId</label><input id="statsFormOrgId" type="text" placeholder="101"></div>
+            <div class="field"><label for="statsFormTblId">통계표 tblId</label><input id="statsFormTblId" type="text" placeholder="DT_1B040A3"></div>
+            <div class="field"><label for="statsFormItmId">항목 itmId (선택)</label><input id="statsFormItmId" type="text" placeholder="T20"></div>
+            <div class="field"><label for="statsFormPrdSe">수록주기</label><select id="statsFormPrdSe"><option value="Y">연간</option><option value="Q">분기</option><option value="M">월간</option></select></div>
+            <div class="field"><label for="statsFormScheme">지역코드 체계</label><select id="statsFormScheme"><option value="stat2">2자리 (통계청 계열)</option><option value="admin8">8자리 (국토부 계열)</option></select></div>
+            <div class="field"><label for="statsFormUnit">단위 (비우면 자동)</label><input id="statsFormUnit" type="text" placeholder="명"></div>
+            <div class="field"><label for="statsFormDigits">소수점 자리</label><input id="statsFormDigits" type="number" min="0" max="4" value="0"></div>
+          </div>
+          <div class="field"><label for="statsFormSentence">본문 문장 틀</label><input id="statsFormSentence" type="text" value="{지역}의 {지표}{은는} {시점} 기준 {값}{단위}이다."></div>
+          <div class="settings-note">
+            자리표시자 · <code>{지역}</code> <code>{지표}</code> <code>{값}</code> <code>{단위}</code> <code>{시점}</code> <code>{증감}</code> <code>{출처}</code><br>
+            조사 자동 · <code>{은는}</code> <code>{이가}</code> <code>{을를}</code> <code>{와과}</code> <code>{으로로}</code> — 앞 글자 받침을 보고 알아서 골라줘서 지표 이름이 바뀌어도 조사가 틀리지 않아.
+          </div>
+          <div class="stats-toolbar" style="margin-top:10px">
+            <button class="btn" id="statsTestBtn">연결 시험</button>
+            <button class="btn primary" id="statsSaveBtn">지표 등록</button>
+          </div>
+          <div class="stats-message" id="statsAdminMessage"></div>
+
+          <h3 class="section-title" style="margin:18px 0 10px;font-size:14px">3) 등록된 지표</h3>
+          <div class="stats-catalog" id="statsCatalog"><div class="empty">아직 등록된 지표가 없어.</div></div>
+        </div>
+      </div></section>
+    </section>
+
     <section class="page-view" id="salaryPage">
       <div class="page-heading">
         <div>
@@ -511,6 +581,11 @@
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle" style="max-width:460px">
       <h2 id="eventModalTitle">일정 추가</h2>
       <p class="lead" id="eventDateLabel"></p>
+
+      <div class="field">
+        <label for="eventDateInput">날짜</label>
+        <input id="eventDateInput" type="date" />
+      </div>
 
       <div class="field">
         <label for="eventTitleInput">일정 내용</label>
@@ -816,6 +891,7 @@
 <script src="./assets/js/weekly.js"></script>
 <script src="./assets/js/calendar.js"></script>
 <script src="./assets/js/manual.js"></script>
+<script src="./assets/js/kosis.js"></script>
 <script src="./assets/js/notice.js"></script>
 <script src="./assets/js/events.js"></script>
 <script src="./assets/js/status.js"></script>

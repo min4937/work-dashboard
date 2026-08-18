@@ -763,6 +763,29 @@
   .payroll-table th:first-child,.payroll-table td:first-child,.payroll-table th:nth-child(2),.payroll-table td:nth-child(2){text-align:left}.payroll-missing{color:#a3a8ae;font-style:italic}
   @media(max-width:900px){.file-upload-grid,.leave-request-grid{grid-template-columns:1fr}.file-item{grid-template-columns:1fr 90px}.leave-request-row{grid-template-columns:90px 90px 1fr}.leave-request-row .leave-note{grid-column:1/-1}.team-member-row{grid-template-columns:1fr 80px}.team-member-row>:last-child{grid-column:1/-1}}
 
+  /* 통계자료 (KOSIS) */
+  .stats-toolbar{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .stats-toolbar .field label{display:block}
+  .stats-message{margin-top:10px;font-size:11px;color:var(--muted);min-height:16px;line-height:1.5}
+  .stats-result{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+  .stats-item{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}
+  .stats-item-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .stats-item-head strong{font-size:13px;color:#31373d}
+  .stats-badge{display:inline-block;padding:3px 7px;border-radius:7px;background:#eef8fd;color:#4b9cc7;font-size:10px;font-weight:900}
+  .stats-badge.warn{background:#fff2f2;color:#bd4f4f}
+  .stats-value{font-size:21px;font-weight:950;color:#2f3941;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+  .stats-unit{font-size:12px;font-weight:800;color:var(--muted)}
+  .stats-delta{font-size:11px;font-weight:800;color:#4b9cc7;margin-left:4px}
+  .stats-sentence{margin:9px 0 7px;padding:10px 12px;border:1px dashed #d9e5ed;border-radius:10px;background:#f9fcfe;font-size:12px;line-height:1.6;color:#3b444c}
+  .stats-sentence.warn{border-color:#eecfcf;background:#fffafa;color:#a9564f}
+  .stats-search-result{display:flex;flex-direction:column;gap:7px;margin-top:10px;max-height:320px;overflow-y:auto}
+  .stats-search-item,.stats-catalog-item{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .stats-catalog-item{grid-template-columns:1fr 70px auto}
+  .stats-catalog{display:flex;flex-direction:column;gap:7px}
+  .stats-form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  @media(max-width:900px){.stats-form-grid{grid-template-columns:1fr 1fr}.stats-catalog-item{grid-template-columns:1fr auto}.stats-catalog-item>:nth-child(2){display:none}}
+  @media(max-width:600px){.stats-form-grid{grid-template-columns:1fr}.stats-toolbar{align-items:stretch;flex-direction:column}}
+
   footer{margin:24px 0 4px;color:var(--muted);font-size:11px;text-align:center}
   @media(max-width:1050px){
     .cards{grid-template-columns:repeat(3,1fr)}

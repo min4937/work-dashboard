@@ -275,6 +275,14 @@ $("uploadManualFile").addEventListener("click",uploadManualFile);
 $("refreshManualFiles").addEventListener("click",loadManualFiles);
 $("submitLeaveRequest").addEventListener("click",submitLeaveRequest);
 
+$("statsFetch").addEventListener("click",fetchKosisAll);
+$("statsCopyAll").addEventListener("click",copyKosisAll);
+$("statsExport").addEventListener("click",exportKosisJson);
+$("statsSearchBtn").addEventListener("click",searchKosisTables);
+$("statsTestBtn").addEventListener("click",testKosisIndicator);
+$("statsSaveBtn").addEventListener("click",saveKosisIndicator);
+$("statsToggleAdmin").addEventListener("click",toggleKosisAdmin);
+
 
 /* --------------------------------------------------------------- 로그인 모달 */
 
@@ -338,6 +346,10 @@ $("deleteEvent").addEventListener("click",deleteCalendarEvent);
 $("closeEventModal").addEventListener("click",closeEventModal);
 $("eventModal").addEventListener("click",e=>{
   if(e.target===$("eventModal")) closeEventModal();
+});
+$("eventDateInput").addEventListener("change",e=>{
+  const key=e.target.value;
+  if(key) $("eventDateLabel").textContent=displayDailyDate(key);
 });
 $("eventTitleInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"){ e.preventDefault(); saveCalendarEvent(); }
@@ -426,6 +438,7 @@ document.querySelectorAll(".top-tab").forEach(btn=>{
     if(pageId==="dailyLogPage") await renderDailyLogPage();
     if(pageId==="weeklyLogPage") await renderWeeklyLogPage();
     if(pageId==="manualPage") await renderManualPage();
+    if(pageId==="statsPage") await renderStatsPage();
     if(pageId==="leavePage" && teamCloud.configured && teamCloud.user) await loadLeaveRequests();
 
     if(pageId==="salaryPage" && teamCloud.configured && teamCloud.user){
@@ -441,7 +454,7 @@ document.querySelectorAll(".top-tab").forEach(btn=>{
 /* ----------------------------------------------------------------- 부팅 */
 
 const lastPage=localStorage.getItem("myCompanyDashboard_lastPage");
-const savedBtn=["schedulePage","dailyLogPage","weeklyLogPage","manualPage","salaryPage","leavePage"].includes(lastPage)
+const savedBtn=["schedulePage","dailyLogPage","weeklyLogPage","manualPage","statsPage","salaryPage","leavePage"].includes(lastPage)
   ? document.querySelector(`[data-page="${lastPage}"]`)
   : null;
 (savedBtn || document.querySelector('[data-page="schedulePage"]'))?.click();

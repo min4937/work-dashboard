@@ -75,10 +75,12 @@ function openEventModal(key,event=null){
 
   $("eventModalTitle").textContent=readonly ? "팀 공유 일정" : (event ? "일정 수정" : "일정 추가");
   $("eventDateLabel").textContent=displayDailyDate(key);
+  $("eventDateInput").value=key;
   $("eventTitleInput").value=editingEvent.title||"";
   $("eventVisibility").value=editingEvent.visibility||"personal";
 
   // 남이 만든 팀 일정은 읽기만 한다
+  $("eventDateInput").disabled=readonly;
   $("eventTitleInput").disabled=readonly;
   $("eventVisibility").disabled=readonly;
   $("saveEvent").style.display=readonly ? "none" : "inline-block";
@@ -118,6 +120,11 @@ async function saveCalendarEvent(){
 
   const title=$("eventTitleInput").value.trim();
   const visibility=$("eventVisibility").value==="team" ? "team" : "personal";
+  const key=($("eventDateInput").value||"").trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(key)){
+    setEventMessage("날짜를 골라줘.",true);
+    return;
+  }
   if(!title){
     setEventMessage("일정 내용을 적어줘.",true);
     return;
@@ -127,7 +134,7 @@ async function saveCalendarEvent(){
     return;
   }
 
-  const key=editingEvent.date;
+  const prevKey=editingEvent.date;
 
   if(teamCloud.configured && teamCloud.user){
     const payload={
@@ -151,18 +158,35 @@ async function saveCalendarEvent(){
     }
     await loadCalendarEvents();
   }else{
+    // 날짜를 옮겼으면 예전 날짜 목록에서 먼저 빼낸다
+    if(editingEvent.id && prevKey!==key){
+      const prevList=(localEvents()[prevKey]||[]).filter(e=>e.id!==editingEvent.id);
+      if(prevList.length) localEvents()[prevKey]=prevList;
+      else delete localEvents()[prevKey];
+    }
+
     const list=localEvents()[key]||[];
-    if(editingEvent.id){
-      const target=list.find(e=>e.id===editingEvent.id);
-      if(target){ target.title=title; target.visibility=visibility; }
+    const target=editingEvent.id ? list.find(e=>e.id===editingEvent.id) : null;
+    if(target){
+      target.title=title;
+      target.visibility=visibility;
     }else{
-      list.push({id:Date.now(),title,visibility});
+      list.push({id:editingEvent.id||Date.now(),title,visibility});
     }
     localEvents()[key]=list;
     persist();
   }
 
   closeEventModal();
+
+  // 다른 달로 옮겼으면 그 달로 따라간다
+  const [y,m]=key.split("-").map(Number);
+  if(viewDate.getFullYear()!==y || viewDate.getMonth()!==m-1){
+    viewDate=new Date(y,m-1,1);
+    await reloadForViewMonth();
+    return;
+  }
+
   renderCalendar();
   renderAnnualCalendar();
 }
