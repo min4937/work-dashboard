@@ -689,6 +689,10 @@
     min-width:145px;width:145px;background:#fff;font-size:10px;line-height:1.48
   }
   .weekly-day-cell.weekend{background:#fbfbfc}
+  .weekly-day-cell.holiday{background:#fff6f6}
+  /* 평일 공휴일 헤더는 빨갛게 */
+  .weekly-sheet thead th.holiday{background:#fdeeee;color:#d34c4c}
+  .weekly-holiday-name{margin-top:3px;font-size:9px;font-weight:800;color:#d34c4c}
   .weekly-day-cell.empty{color:#b1b6bd;text-align:center;vertical-align:middle}
   .weekly-log-section{margin-bottom:7px}
   .weekly-log-section:last-child{margin-bottom:0}

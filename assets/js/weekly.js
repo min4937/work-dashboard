@@ -25,6 +25,29 @@ function weeklyDayHeader(d){
   return `${d.getMonth()+1}/${d.getDate()} (${names[d.getDay()]})`;
 }
 
+function isWeekendDate(d){
+  return d.getDay()===0 || d.getDay()===6;
+}
+
+/* 업무일지에 실제 내용이 올라온 날인가 (= 그날 출근했다고 본다) */
+function hasWrittenLog(logs,key){
+  return logs.some(log=>log.work_date===key &&
+    (log.morning||log.afternoon||log.overtime||log.start_time||log.end_time));
+}
+
+/* 월~금은 항상 보이고, 토·일은 누군가 일지를 올린 날만 보인다. */
+function weeklyVisibleDays(logs){
+  const {start}=weeklyDateRange();
+  const days=[];
+  for(let i=0;i<7;i++){
+    const d=new Date(start);
+    d.setDate(start.getDate()+i);
+    if(isWeekendDate(d) && !hasWrittenLog(logs,dateKey(d))) continue;
+    days.push(d);
+  }
+  return days;
+}
+
 function weeklyLogCellHtml(log){
   if(!log){
     return '<span style="color:#b7bcc2">-</span>';
@@ -87,18 +110,28 @@ function renderWeeklySheet(members,logs){
   const body=$("weeklyLogBody");
   if(!head||!body) return;
 
-  const {start}=weeklyDateRange();
-  const days=[];
-  for(let i=0;i<7;i++){
-    const d=new Date(start);
-    d.setDate(start.getDate()+i);
-    days.push(d);
-  }
+  const days=weeklyVisibleDays(logs);
+
+  // 열 개수가 달라지므로 표 최소폭도 같이 맞춘다
+  const table=head.closest("table");
+  if(table) table.style.minWidth=`${135+days.length*145}px`;
 
   head.innerHTML=`
     <tr>
       <th style="width:135px">직급 · 성명</th>
-      ${days.map(d=>`<th>${weeklyDayHeader(d)}</th>`).join("")}
+      ${days.map(d=>{
+        const key=dateKey(d);
+        const holiday=getHoliday(key);
+        const cls=[];
+        if(isWeekendDate(d)) cls.push("weekend");
+        // 평일 공휴일은 빨간색으로 알아보게 한다
+        if(holiday && !isWeekendDate(d)) cls.push("holiday");
+        const title=holiday ? ` title="${escapeHtml(holiday)}"` : "";
+        const name=holiday && !isWeekendDate(d)
+          ? `<div class="weekly-holiday-name">${escapeHtml(holiday)}</div>`
+          : "";
+        return `<th class="${cls.join(" ")}"${title}>${weeklyDayHeader(d)}${name}</th>`;
+      }).join("")}
     </tr>
   `;
 
@@ -106,7 +139,7 @@ function renderWeeklySheet(members,logs){
   const sorted=sortTeamMembers(members);
 
   if(!sorted.length){
-    body.innerHTML='<tr><td colspan="8" style="padding:28px;text-align:center;color:var(--muted)">표시할 팀원이 없어.</td></tr>';
+    body.innerHTML=`<tr><td colspan="${days.length+1}" style="padding:28px;text-align:center;color:var(--muted)">표시할 팀원이 없어.</td></tr>`;
     return;
   }
 
@@ -126,7 +159,8 @@ function renderWeeklySheet(members,logs){
       const log=logs.find(x=>x.user_id===member.user_id && x.work_date===key);
       const td=document.createElement("td");
       td.className="weekly-day-cell";
-      if(d.getDay()===0||d.getDay()===6) td.classList.add("weekend");
+      if(isWeekendDate(d)) td.classList.add("weekend");
+      else if(getHoliday(key)) td.classList.add("holiday");
       if(!log) td.classList.add("empty");
       td.innerHTML=weeklyLogCellHtml(log);
       tr.appendChild(td);
