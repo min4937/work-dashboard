@@ -13,8 +13,8 @@
    KOSIS 는 CORS 헤더를 주지 않으므로 브라우저에서 직접 부를 수 없다.
    supabase/functions/kosis-proxy 를 거친다.
 
-   인증키는 사람마다 KOSIS 에서 직접 발급받아 쓴다. 이 브라우저에만 저장하고
-   (localStorage) 호출할 때만 프록시로 넘긴다. 서버 DB 에는 남기지 않는다.
+   인증키는 사람마다 KOSIS 에서 직접 발급받아 쓴다. 계정에 붙여두므로
+   (kosis_api_keys, RLS 로 본인만 열람) 어느 PC 에서 로그인하든 그대로 쓰인다.
    ============================================================================ */
 
 /* 시도 코드. 통계표마다 2자리(stat2)와 8자리(admin8) 체계가 갈려서 둘 다 들고 있다.
@@ -41,8 +41,9 @@ const KOSIS_REGIONS=[
 ];
 
 const KOSIS_STORE_KEY="myCompanyDashboard_lastStatsRegion";
-const KOSIS_APIKEY_STORE="myCompanyDashboard_kosisApiKey";
-const KOSIS_APIKEY_URL="https://kosis.kr/openapi/devGuide/devGuide_0201List.do";
+const KOSIS_APIKEY_STORE="myCompanyDashboard_kosisApiKey";  // 예전 저장 위치. 옮겨오는 데만 쓴다.
+
+let kosisKey="";        // 로그인한 사람의 KOSIS 인증키 (계정에서 읽어온 값)
 
 let kosisCatalog=[];    // 등록된 지표 목록
 let kosisResults=[];    // 마지막 조회 결과
@@ -59,7 +60,38 @@ function setStatsAdminMessage(t,e=false){
 /* ------------------------------------------------------- 내 KOSIS 인증키 */
 
 function kosisApiKey(){
-  return (localStorage.getItem(KOSIS_APIKEY_STORE)||"").trim();
+  return kosisKey;
+}
+
+/* 계정에 붙여둔 키를 읽어온다. RLS 가 본인 행만 내주므로 남의 키는 애초에 안 온다. */
+async function loadKosisApiKey(){
+  kosisKey="";
+  if(!teamCloud.client||!teamCloud.user) return;
+
+  const {data,error}=await teamCloud.client
+    .from("kosis_api_keys").select("api_key").eq("user_id",teamCloud.user.id).maybeSingle();
+
+  if(error){
+    console.error(error);
+    setStatsMessage("인증키를 불러오지 못했어. SQL 패치를 적용했는지 확인해줘.",true);
+    return;
+  }
+
+  kosisKey=(data?.api_key||"").trim();
+
+  // 이 브라우저에만 있던 예전 키는 계정으로 한 번 옮기고 지운다
+  const legacy=(localStorage.getItem(KOSIS_APIKEY_STORE)||"").trim();
+  if(legacy){
+    if(!kosisKey && await writeKosisApiKey(legacy)) kosisKey=legacy;
+    localStorage.removeItem(KOSIS_APIKEY_STORE);
+  }
+}
+
+async function writeKosisApiKey(key){
+  const {error}=await teamCloud.client.from("kosis_api_keys")
+    .upsert({user_id:teamCloud.user.id,api_key:key},{onConflict:"user_id"});
+  if(error){ console.error(error); return false; }
+  return true;
 }
 
 /* 키 전체를 화면에 다시 뿌리지 않는다. 등록됐는지만 보이면 충분하다. */
@@ -73,25 +105,38 @@ function renderKosisKeyState(){
   if(!box) return;
   const key=kosisApiKey();
   box.textContent=key
-    ? `내 인증키 등록됨 · ${kosisMaskKey(key)} (이 브라우저에만 저장돼)`
+    ? `내 인증키 등록됨 · ${kosisMaskKey(key)} (계정에 저장돼서 어느 PC 에서든 쓰여)`
     : "아직 인증키를 등록하지 않았어. KOSIS 에서 발급받은 본인 키를 넣어줘.";
   box.style.color=key?"var(--muted)":"var(--red)";
   $("statsKeyClear").style.display=key?"inline-block":"none";
 }
 
-function saveKosisApiKey(){
+async function saveKosisApiKey(){
   const input=$("statsKeyInput");
   const key=input.value.trim();
   if(!key){ setStatsMessage("인증키를 붙여넣어줘.",true); return; }
-  localStorage.setItem(KOSIS_APIKEY_STORE,key);
+
+  const btn=$("statsKeySave");
+  btn.disabled=true; btn.textContent="저장 중...";
+  const ok=await writeKosisApiKey(key);
+  btn.disabled=false; btn.textContent="인증키 저장";
+
+  if(!ok){ setStatsMessage("인증키를 저장하지 못했어. SQL 패치를 적용했는지 확인해줘.",true); return; }
+
+  kosisKey=key;
   input.value="";
   renderKosisKeyState();
-  setStatsMessage("인증키를 저장했어. 이제 조회할 수 있어.");
+  setStatsMessage("인증키를 저장했어. 다른 PC 에서 로그인해도 그대로 쓰여.");
 }
 
-function clearKosisApiKey(){
-  if(!confirm("이 브라우저에 저장된 KOSIS 인증키를 지울까?")) return;
-  localStorage.removeItem(KOSIS_APIKEY_STORE);
+async function clearKosisApiKey(){
+  if(!confirm("계정에 저장된 KOSIS 인증키를 지울까? 다른 PC 에서도 함께 지워져.")) return;
+
+  const {error}=await teamCloud.client
+    .from("kosis_api_keys").delete().eq("user_id",teamCloud.user.id);
+  if(error){ console.error(error); setStatsMessage("인증키를 지우지 못했어.",true); return; }
+
+  kosisKey="";
   renderKosisKeyState();
   setStatsMessage("인증키를 지웠어.");
 }
@@ -183,6 +228,7 @@ async function renderStatsPage(){
   $("statsLoginNotice").style.display="none";
   $("statsMain").style.display="block";
   $("statsAdminPanel").style.display="block";
+  await loadKosisApiKey();
   renderKosisKeyState();
   await loadKosisCatalog();
 }

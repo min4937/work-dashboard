@@ -250,6 +250,7 @@ async function signOut() {
   teamCloud.myLoggedDates = new Set();
   teamCloud.myOvertimeByDate = new Map();
   teamCloud.myWorkStatusByDate = new Map();
+  kosisKey = "";   // 남의 계정으로 갈아타는 자리라 인증키는 메모리에서도 지운다
   closeLoginModal();
 }
 

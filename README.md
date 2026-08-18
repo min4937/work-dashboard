@@ -32,6 +32,7 @@ supabase/
   patch-2026-08-team-notices.sql   기존 프로젝트에 팀 공지사항 테이블 추가
   patch-2026-08-calendar-events.sql 기존 프로젝트에 중요일정 테이블 추가
   patch-2026-08-kosis-indicators.sql 기존 프로젝트에 통계 지표 카탈로그 추가
+  patch-2026-08-kosis-api-keys.sql   기존 프로젝트에 KOSIS 개인 인증키 보관표 추가
   functions/
     kosis-proxy/index.ts  KOSIS OpenAPI 프록시 (CORS 우회)
 ```
@@ -105,6 +106,7 @@ python -m http.server 8000
 | 팀 이름 | `teams` | 같은 팀 전원 | 팀장만 |
 | 초대코드 | `team_invites` | **팀장만** | 팀장만 |
 | **급여 · 연차 일수 · 월간기록 · 주간메모** | `user_state` | **본인만** | 본인만 |
+| **KOSIS 인증키** | `kosis_api_keys` | **본인만** | 본인만 |
 
 월급과 개인 연차 일수(총/사용/잔여)는 `user_state`에 들어 있고 RLS가 본인 행만
 내주므로, 팀장을 포함해 **누구도 남의 것을 볼 수 없다**. 팀장이 보는 연차 정보는
@@ -148,7 +150,8 @@ python -m http.server 8000
 
 ### 설정 (관리자, 한 번만)
 
-1. SQL Editor에 `supabase/patch-2026-08-kosis-indicators.sql`을 붙여넣고 Run
+1. SQL Editor에 `supabase/patch-2026-08-kosis-indicators.sql`과
+   `supabase/patch-2026-08-kosis-api-keys.sql`을 붙여넣고 Run
 2. Edge Function 배포
    ```
    supabase functions deploy kosis-proxy
@@ -165,9 +168,12 @@ KOSIS는 CORS 헤더를 주지 않아 브라우저에서 직접 부를 수 없�
 1. [kosis.kr/openapi](https://kosis.kr/openapi/)에서 회원가입 후 인증키 발급 (무료)
 2. [통계자료] 탭 맨 위 **내 KOSIS 인증키**에 붙여넣고 저장
 
-키는 그 브라우저의 localStorage에만 남고 서버 DB에는 저장하지 않는다. 프록시는 호출할
-때 받은 키를 그대로 KOSIS에 넘길 뿐 보관하지 않는다. 다른 PC에서 쓰려면 그 PC에서 다시
-넣어야 하고, 공용 PC에서는 [지우기]로 정리한다.
+키는 `kosis_api_keys`에 내 계정으로 붙어 있어서 **어느 PC에서 로그인하든 그대로 쓰인다**.
+RLS가 `user_id = auth.uid()`로 잠가 두어 팀장을 포함해 남은 읽을 수 없다. `user_state`에
+얹지 않은 이유가 여기 있다 — 그쪽은 백업 내려받기로 통째로 빠져나가는 자리다.
+
+프록시는 호출할 때 받은 키를 그대로 KOSIS에 넘길 뿐 보관하지 않는다. [지우기]를 누르면
+계정에서 지워지므로 다른 PC에서도 함께 사라진다.
 
 팀 공용 키를 쓰고 싶으면 함수 시크릿에 `KOSIS_API_KEY`를 걸어두면 된다. 개인 키를 등록한
 사람은 자기 키가, 안 한 사람은 공용 키가 쓰인다.
