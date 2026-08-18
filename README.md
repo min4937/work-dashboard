@@ -33,7 +33,7 @@ supabase/
   patch-2026-08-calendar-events.sql 기존 프로젝트에 중요일정 테이블 추가
   patch-2026-08-kosis-indicators.sql 기존 프로젝트에 통계 지표 카탈로그 추가
   functions/
-    kosis-proxy/index.ts  KOSIS OpenAPI 프록시 (CORS 우회 · 인증키 은닉)
+    kosis-proxy/index.ts  KOSIS OpenAPI 프록시 (CORS 우회)
 ```
 
 스크립트는 ES 모듈이 아니라 순서대로 로드되는 전역 스크립트다. `index.html` 하단의
@@ -146,22 +146,41 @@ python -m http.server 8000
 때문에 옮겨 적다 생기는 오기입이 없다. 해당 지역에 공표값이 없으면 빈칸으로 두지 않고
 붉은 경고와 함께 `-`로 표시하며, 그 지표는 문장 복사에서 제외한다.
 
-### 설정
+### 설정 (관리자, 한 번만)
 
-1. [kosis.kr/openapi](https://kosis.kr/openapi/)에서 회원가입 후 **인증키 발급** (무료, 회원당 1개)
-2. SQL Editor에 `supabase/patch-2026-08-kosis-indicators.sql`을 붙여넣고 Run
-3. Edge Function 배포 — 인증키는 브라우저에 두지 않고 함수 시크릿에 넣는다
+1. SQL Editor에 `supabase/patch-2026-08-kosis-indicators.sql`을 붙여넣고 Run
+2. Edge Function 배포
    ```
-   supabase secrets set KOSIS_API_KEY=발급받은키
    supabase functions deploy kosis-proxy
    ```
 
 KOSIS는 CORS 헤더를 주지 않아 브라우저에서 직접 부를 수 없다. 프록시는 이 제약을
-넘기 위한 것이고, 인증키를 숨기는 효과도 같이 얻는다.
+넘기 위한 것이다.
+
+### 인증키 (각자)
+
+인증키는 **KOSIS 회원당 1개**라서 함께 쓰면 호출 한도를 서로 잡아먹는다. 그래서
+**쓰는 사람이 각자 발급받아 등록**한다.
+
+1. [kosis.kr/openapi](https://kosis.kr/openapi/)에서 회원가입 후 인증키 발급 (무료)
+2. [통계자료] 탭 맨 위 **내 KOSIS 인증키**에 붙여넣고 저장
+
+키는 그 브라우저의 localStorage에만 남고 서버 DB에는 저장하지 않는다. 프록시는 호출할
+때 받은 키를 그대로 KOSIS에 넘길 뿐 보관하지 않는다. 다른 PC에서 쓰려면 그 PC에서 다시
+넣어야 하고, 공용 PC에서는 [지우기]로 정리한다.
+
+팀 공용 키를 쓰고 싶으면 함수 시크릿에 `KOSIS_API_KEY`를 걸어두면 된다. 개인 키를 등록한
+사람은 자기 키가, 안 한 사람은 공용 키가 쓰인다.
+
+```
+supabase secrets set KOSIS_API_KEY=공용키   # 선택
+```
 
 ### 지표 등록
 
-[지표 관리]에서 검색어로 통계표를 찾아 등록한다. 한 번 등록하면 지역만 바꿔 계속 쓴다.
+[지표 관리]에서 KOSIS 통계표 화면의 **주소를 통째로 붙여넣으면** `orgId`·`tblId`를 뽑아
+폼을 채워준다. 로그인을 거친 `sso=ok&returnurl=...` 주소도 그대로 넣으면 된다. 주소가
+없으면 검색어로도 찾을 수 있다. 한 번 등록하면 지역만 바꿔 계속 쓴다.
 
 주의할 곳은 **지역코드 체계**다. 통계청 계열은 2자리(`33`=충북), 국토교통부·부동산원
 계열은 8자리(`43000000`)를 쓰는 경우가 많아 통계표마다 다르다. 등록 전에 [연결 시험]을

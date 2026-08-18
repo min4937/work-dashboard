@@ -11,7 +11,10 @@
    - 값이 없으면 빈칸이 아니라 '-' 로 찍고 경고를 띄운다. 조용히 비면 위험하다.
 
    KOSIS 는 CORS 헤더를 주지 않으므로 브라우저에서 직접 부를 수 없다.
-   supabase/functions/kosis-proxy 를 거친다. 인증키도 그쪽 시크릿에 있다.
+   supabase/functions/kosis-proxy 를 거친다.
+
+   인증키는 사람마다 KOSIS 에서 직접 발급받아 쓴다. 이 브라우저에만 저장하고
+   (localStorage) 호출할 때만 프록시로 넘긴다. 서버 DB 에는 남기지 않는다.
    ============================================================================ */
 
 /* 시도 코드. 통계표마다 2자리(stat2)와 8자리(admin8) 체계가 갈려서 둘 다 들고 있다.
@@ -38,6 +41,8 @@ const KOSIS_REGIONS=[
 ];
 
 const KOSIS_STORE_KEY="myCompanyDashboard_lastStatsRegion";
+const KOSIS_APIKEY_STORE="myCompanyDashboard_kosisApiKey";
+const KOSIS_APIKEY_URL="https://kosis.kr/openapi/devGuide/devGuide_0201List.do";
 
 let kosisCatalog=[];    // 등록된 지표 목록
 let kosisResults=[];    // 마지막 조회 결과
@@ -49,6 +54,53 @@ function setStatsMessage(t,e=false){
 function setStatsAdminMessage(t,e=false){
   const x=$("statsAdminMessage");
   if(x){ x.textContent=t||""; x.style.color=e?"var(--red)":"var(--muted)"; }
+}
+
+/* ------------------------------------------------------- 내 KOSIS 인증키 */
+
+function kosisApiKey(){
+  return (localStorage.getItem(KOSIS_APIKEY_STORE)||"").trim();
+}
+
+/* 키 전체를 화면에 다시 뿌리지 않는다. 등록됐는지만 보이면 충분하다. */
+function kosisMaskKey(key){
+  if(!key) return "";
+  return key.length<=8 ? "****" : `${key.slice(0,4)}${"*".repeat(8)}${key.slice(-4)}`;
+}
+
+function renderKosisKeyState(){
+  const box=$("statsKeyState");
+  if(!box) return;
+  const key=kosisApiKey();
+  box.textContent=key
+    ? `내 인증키 등록됨 · ${kosisMaskKey(key)} (이 브라우저에만 저장돼)`
+    : "아직 인증키를 등록하지 않았어. KOSIS 에서 발급받은 본인 키를 넣어줘.";
+  box.style.color=key?"var(--muted)":"var(--red)";
+  $("statsKeyClear").style.display=key?"inline-block":"none";
+}
+
+function saveKosisApiKey(){
+  const input=$("statsKeyInput");
+  const key=input.value.trim();
+  if(!key){ setStatsMessage("인증키를 붙여넣어줘.",true); return; }
+  localStorage.setItem(KOSIS_APIKEY_STORE,key);
+  input.value="";
+  renderKosisKeyState();
+  setStatsMessage("인증키를 저장했어. 이제 조회할 수 있어.");
+}
+
+function clearKosisApiKey(){
+  if(!confirm("이 브라우저에 저장된 KOSIS 인증키를 지울까?")) return;
+  localStorage.removeItem(KOSIS_APIKEY_STORE);
+  renderKosisKeyState();
+  setStatsMessage("인증키를 지웠어.");
+}
+
+/* 프록시 호출은 전부 이 함수를 거친다. 키를 빠뜨릴 자리를 하나로 모은다. */
+async function callKosisProxy(body){
+  const apiKey=kosisApiKey();
+  if(!apiKey) return {data:null,error:{message:"내 KOSIS 인증키를 먼저 등록해줘."}};
+  return teamCloud.client.functions.invoke("kosis-proxy",{body:{...body,apiKey}});
 }
 
 function kosisRegion(name){
@@ -131,6 +183,7 @@ async function renderStatsPage(){
   $("statsLoginNotice").style.display="none";
   $("statsMain").style.display="block";
   $("statsAdminPanel").style.display="block";
+  renderKosisKeyState();
   await loadKosisCatalog();
 }
 
@@ -185,6 +238,7 @@ function renderKosisCatalog(){
 
 async function fetchKosisAll(){
   if(!teamCloud.user||!teamCloud.teamId) return;
+  if(!kosisApiKey()){ setStatsMessage("내 KOSIS 인증키를 먼저 등록해줘. 위 인증키 칸에 붙여넣으면 돼.",true); return; }
   if(!kosisCatalog.length){ setStatsMessage("등록된 지표가 없어. 지표 관리에서 먼저 추가해줘.",true); return; }
 
   const regionName=$("statsRegion").value;
@@ -198,15 +252,13 @@ async function fetchKosisAll(){
   // 지표별로 프록시를 부른다. 한 건이 실패해도 나머지는 살린다.
   const settled=await Promise.all(kosisCatalog.map(async spec=>{
     try{
-      const {data,error}=await teamCloud.client.functions.invoke("kosis-proxy",{
-        body:{
-          action:"indicator",
-          orgId:spec.orgId, tblId:spec.tblId, itmId:spec.itmId,
-          prdSe:spec.prdSe, periods:Math.max(2,spec.periods),
-          regionParam:spec.regionParam,
-          regionCode:region[spec.regionScheme]||region.stat2,
-          extraParams:spec.extraParams
-        }
+      const {data,error}=await callKosisProxy({
+        action:"indicator",
+        orgId:spec.orgId, tblId:spec.tblId, itmId:spec.itmId,
+        prdSe:spec.prdSe, periods:Math.max(2,spec.periods),
+        regionParam:spec.regionParam,
+        regionCode:region[spec.regionScheme]||region.stat2,
+        extraParams:spec.extraParams
       });
       if(error) throw new Error(error.message||"호출 실패");
       if(data?.error) throw new Error(data.error);
@@ -376,8 +428,8 @@ async function applyKosisUrl(){
   setStatsAdminMessage(`orgId ${parsed.orgId} / tblId ${parsed.tblId} 를 읽었어. 통계표 정보를 확인하는 중...`);
 
   // 지역코드가 2자리인지 8자리인지는 여기서 정해두지 않으면 조회가 통째로 빈다
-  const {data,error}=await teamCloud.client.functions.invoke("kosis-proxy",{
-    body:{action:"meta",orgId:parsed.orgId,tblId:parsed.tblId,type:"OBJ"}
+  const {data,error}=await callKosisProxy({
+    action:"meta",orgId:parsed.orgId,tblId:parsed.tblId,type:"OBJ"
   });
 
   btn.disabled=false; btn.textContent="주소에서 읽기";
@@ -403,9 +455,7 @@ async function searchKosisTables(){
   btn.disabled=true; btn.textContent="검색 중...";
   setStatsAdminMessage("");
 
-  const {data,error}=await teamCloud.client.functions.invoke("kosis-proxy",{
-    body:{action:"search",keyword:kw}
-  });
+  const {data,error}=await callKosisProxy({action:"search",keyword:kw});
 
   btn.disabled=false; btn.textContent="통계표 검색";
 
@@ -465,12 +515,10 @@ async function testKosisIndicator(){
   const btn=$("statsTestBtn");
   btn.disabled=true; btn.textContent="시험 중...";
 
-  const {data,error}=await teamCloud.client.functions.invoke("kosis-proxy",{
-    body:{
-      action:"indicator", orgId:f.orgId, tblId:f.tblId, itmId:f.itmId,
-      prdSe:f.prdSe, periods:2, regionParam:"objL1",
-      regionCode:region[f.regionScheme]||region.stat2
-    }
+  const {data,error}=await callKosisProxy({
+    action:"indicator", orgId:f.orgId, tblId:f.tblId, itmId:f.itmId,
+    prdSe:f.prdSe, periods:2, regionParam:"objL1",
+    regionCode:region[f.regionScheme]||region.stat2
   });
 
   btn.disabled=false; btn.textContent="연결 시험";

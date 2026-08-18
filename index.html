@@ -302,7 +302,22 @@
       <section class="panel"><div class="panel-inner">
         <div id="statsLoginNotice" class="shared-lock">팀 계정으로 로그인하면 통계자료를 쓸 수 있어.</div>
         <div id="statsMain" style="display:none">
-          <h2 class="section-title">지역별 최신자료 조회</h2>
+          <h2 class="section-title">내 KOSIS 인증키</h2>
+          <div class="stats-toolbar">
+            <div class="field" style="margin:0;flex:1">
+              <label for="statsKeyInput">인증키</label>
+              <input id="statsKeyInput" type="password" autocomplete="off" placeholder="KOSIS 에서 발급받은 본인 인증키">
+            </div>
+            <button class="btn primary" id="statsKeySave">인증키 저장</button>
+            <button class="btn danger" id="statsKeyClear" style="display:none">지우기</button>
+          </div>
+          <div class="stats-message" id="statsKeyState"></div>
+          <div class="settings-note" style="margin-top:8px">
+            인증키는 <strong>각자 KOSIS 에서 발급</strong>받아 쓴다. 이 브라우저에만 저장되고 서버 DB 에는 남지 않아.
+            <a href="https://kosis.kr/openapi/devGuide/devGuide_0201List.do" target="_blank" rel="noopener">KOSIS 개발가이드에서 발급받기</a>
+          </div>
+
+          <h2 class="section-title" style="margin-top:18px">지역별 최신자료 조회</h2>
           <div class="stats-toolbar">
             <div class="field" style="margin:0"><label for="statsRegion">시도</label><select id="statsRegion"></select></div>
             <button class="btn primary" id="statsFetch">최신자료 조회</button>

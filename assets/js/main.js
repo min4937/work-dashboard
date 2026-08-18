@@ -275,6 +275,11 @@ $("uploadManualFile").addEventListener("click",uploadManualFile);
 $("refreshManualFiles").addEventListener("click",loadManualFiles);
 $("submitLeaveRequest").addEventListener("click",submitLeaveRequest);
 
+$("statsKeySave").addEventListener("click",saveKosisApiKey);
+$("statsKeyClear").addEventListener("click",clearKosisApiKey);
+$("statsKeyInput").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){ e.preventDefault(); saveKosisApiKey(); }
+});
 $("statsFetch").addEventListener("click",fetchKosisAll);
 $("statsCopyAll").addEventListener("click",copyKosisAll);
 $("statsExport").addEventListener("click",exportKosisJson);
