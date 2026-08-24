@@ -474,7 +474,11 @@
               <input id="monthlyCap" type="number" min="0" step="1" placeholder="0 = 제한 없음" />
             </div>
 
-            <div class="section-subtitle">공제 항목</div>
+            <div class="section-subtitle">공제 기본값</div>
+            <div class="settings-note" style="margin-bottom:13px">
+              아래 금액은 <strong>자동 계산을 끈 항목</strong>(요율 0)과 소득세·사우회비에 쓰이는 기본값이야.
+              달마다 다른 실제 금액은 오른쪽 <strong>월별 공제 입력</strong>에서 넣으면 돼.
+            </div>
             <div class="row">
               <div class="field"><label for="incomeTax">소득세</label><input id="incomeTax" type="number" min="0" step="100" /></div>
               <div class="field"><label for="localTax">주민세(지방소득세)</label><input id="localTax" type="number" min="0" step="100" /></div>
@@ -488,6 +492,31 @@
               <div class="field"><label for="nationalPension">국민연금</label><input id="nationalPension" type="number" min="0" step="100" /></div>
             </div>
             <div class="field"><label for="associationFee">사우회비</label><input id="associationFee" type="number" min="0" step="100" /></div>
+
+            <div class="section-subtitle">자동계산 요율</div>
+            <div class="settings-note" style="margin-bottom:13px">
+              4대보험·주민세는 요율이 정해져 있어서 자동으로 계산돼.
+              <strong>국민연금·건강보험·장기요양</strong>은 보수월액 기준이라 야근비가 늘어도 그 달 금액이 그대로고,
+              <strong>고용보험</strong>만 그 달 과세 보수에 따라 달라져. <strong>주민세</strong>는 소득세의 10%야.<br>
+              소득세는 간이세액표라 자동 산출이 어려워서, 마지막에 넣은 값을 다음 달로 이어 써.
+              <strong>요율을 0으로 두면</strong> 그 항목은 자동계산이 꺼지고 위의 기본값을 쓴다.
+            </div>
+            <div class="row">
+              <div class="field"><label for="rateNationalPension">국민연금 요율 (%)</label><input id="rateNationalPension" type="number" min="0" step="0.001" placeholder="4.5" /></div>
+              <div class="field"><label for="rateHealthInsurance">건강보험 요율 (%)</label><input id="rateHealthInsurance" type="number" min="0" step="0.001" placeholder="3.545" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="rateLongTermCare">장기요양 요율 (건보료 대비 %)</label><input id="rateLongTermCare" type="number" min="0" step="0.001" placeholder="12.95" /></div>
+              <div class="field"><label for="rateEmploymentInsurance">고용보험 요율 (%)</label><input id="rateEmploymentInsurance" type="number" min="0" step="0.001" placeholder="0.9" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="rateLocalTax">주민세 요율 (소득세 대비 %)</label><input id="rateLocalTax" type="number" min="0" step="0.1" placeholder="10" /></div>
+              <div class="field"><label for="insuranceBaseWage">보수월액</label><input id="insuranceBaseWage" type="number" min="0" step="1000" placeholder="비우면 지급항목 합계" /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="nonTaxableMonthly">비과세 합계</label><input id="nonTaxableMonthly" type="number" min="0" step="1000" placeholder="비우면 식대·교통비 각 20만" /></div>
+              <div class="field"><label for="pensionBaseCap">국민연금 기준소득 상한</label><input id="pensionBaseCap" type="number" min="0" step="1000" placeholder="6370000" /></div>
+            </div>
 
             <div class="section-subtitle">퇴직연금</div>
             <div class="row3">
@@ -514,19 +543,37 @@
           </div>
         </section>
 
+        <div class="pay-side-column">
         <section class="panel">
           <div class="panel-inner">
             <h2 class="section-title" id="salaryMonthTitle">이번 달 급여 예상</h2>
             <div class="pay-summary" id="payBreakdown"></div>
             <div class="settings-note" style="margin-top:16px">
               실수령 예상액 = 지급항목 합계 + 야근비 − 공제합계.<br>
-              공제액은 실제 급여명세서 금액을 직접 입력하는 방식이야.
+              공제액은 요율로 자동 계산되고, 급여명세서를 넣은 항목은 <strong>명세서</strong> 값이 우선이야.
             </div>
             <div class="settings-note holiday-note" style="margin-top:8px">
               <span id="salaryOvertimeSourceNote">전월 일일업무일지의 야근시간이 이번 달 월급의 야근비로 반영돼.</span>
             </div>
           </div>
         </section>
+
+        <section class="panel">
+          <div class="panel-inner">
+            <h2 class="section-title" id="monthlyDeductionTitle">이번 달 공제 입력</h2>
+            <div class="settings-note" style="margin-bottom:13px">
+              급여명세서를 받으면 그 달 실제 금액을 넣어. 넣은 항목만 그 달에 고정되고,
+              비워 두면 요율로 자동 계산된 값이 쓰여. 달 이동은 위쪽 월 이동 버튼을 따라가.
+            </div>
+            <div class="monthly-deduction-grid" id="monthlyDeductionFields"></div>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn primary" id="saveMonthlyDeduction">이번 달 공제 저장</button>
+              <button class="btn" id="resetMonthlyDeduction">자동값으로 되돌리기</button>
+            </div>
+            <div class="settings-note" id="monthlyDeductionNote" style="margin-top:12px"></div>
+          </div>
+        </section>
+        </div>
       </div>
     </section>
 

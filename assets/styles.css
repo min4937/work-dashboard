@@ -419,6 +419,21 @@
   .pay-summary .amount{text-align:right;font-weight:800}
   .pay-summary .total{font-size:15px;font-weight:900;padding-top:8px;margin-top:4px;border-top:1px solid var(--line)}
   .pay-summary .net{color:var(--accent);font-size:16px}
+  .pay-summary .pay-tag{
+    display:inline-block;margin-left:5px;padding:1px 6px;border-radius:999px;
+    background:#eef0f3;color:var(--muted);font-size:10px;font-weight:800;vertical-align:middle
+  }
+  .pay-summary .pay-tag.manual{background:var(--red-soft);color:#8c3035}
+
+  .pay-side-column{display:flex;flex-direction:column;gap:20px}
+  .monthly-deduction-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .monthly-deduction label{display:flex;align-items:center;gap:5px}
+  .monthly-deduction .pay-tag{
+    padding:1px 6px;border-radius:999px;background:#eef0f3;color:var(--muted);
+    font-size:10px;font-weight:800
+  }
+  .monthly-deduction .pay-tag.manual{background:var(--red-soft);color:#8c3035}
+  .monthly-deduction.manual input{border-color:var(--accent);background:#fbfffd}
   .pension-box{
     display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px
   }

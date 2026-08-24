@@ -16,6 +16,7 @@ function renderSettings(){
     }
   });
   renderPayBreakdown();
+  renderMonthlyDeductions();
 }
 
 function renderAll(){
@@ -23,6 +24,7 @@ function renderAll(){
   renderCalendar();
   renderSummary();
   renderPayBreakdown();
+  renderMonthlyDeductions();
   renderLeavePage();
   renderStatusBar();
   renderWorkTimeBox();
@@ -103,6 +105,24 @@ $("saveSettings").addEventListener("click",()=>{
   renderAll();
   updateBranding();
   alert("급여·공제·퇴직연금 설정을 저장했어.");
+});
+
+$("saveMonthlyDeduction").addEventListener("click",()=>{
+  saveMonthlyDeductions();
+  const key=payrollMonthKey(viewDate);
+  alert(payrollMonths()[key]
+    ? `${viewDate.getFullYear()}년 ${viewDate.getMonth()+1}월 공제를 저장했어.`
+    : `${viewDate.getFullYear()}년 ${viewDate.getMonth()+1}월은 모두 자동 계산으로 돌아갔어.`);
+});
+
+$("resetMonthlyDeduction").addEventListener("click",()=>{
+  const key=payrollMonthKey(viewDate);
+  if(!payrollMonths()[key]){
+    alert("이 달은 이미 전부 자동 계산이야.");
+    return;
+  }
+  if(!confirm(`${viewDate.getFullYear()}년 ${viewDate.getMonth()+1}월에 넣은 공제 금액을 지우고 자동 계산으로 되돌릴까?`)) return;
+  resetMonthlyDeductions();
 });
 
 

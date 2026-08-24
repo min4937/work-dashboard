@@ -14,6 +14,154 @@ const deductionKeys=[
   "longTermCare","nationalPension","associationFee"
 ];
 
+const payLabels={
+  basicSalary:"기본급",
+  technicalAllowance:"기술수당",
+  positionAllowance:"직급수당",
+  qualificationAllowance:"자격수당",
+  serviceAllowance:"근속수당",
+  jobDevelopment:"직무개발비",
+  transport:"교통비 보조",
+  meal:"식대",
+  incomeTax:"소득세",
+  localTax:"주민세(지방소득세)",
+  employmentInsurance:"고용보험",
+  healthInsurance:"건강보험",
+  longTermCare:"장기요양보험",
+  nationalPension:"국민연금",
+  associationFee:"사우회비"
+};
+
+
+/* ==========================================================================
+   월별 공제 : 자동계산 + 그 달만 덮어쓰기
+
+   4대보험·주민세는 요율이 정해져 있어 자동 계산된다. 다만 성격이 다르다.
+     · 국민연금 · 건강보험 · 장기요양 → '보수월액' 기준이라 그 달 야근비가
+       늘어도 금액이 그대로다. (해마다 4월 정산으로 한 번에 조정된다)
+     · 고용보험 → 그 달 실제 과세 보수 기준이라 야근비 따라 달라진다.
+     · 주민세 → 소득세의 10%로 딱 떨어진다.
+   소득세만 간이세액표(급여구간 × 부양가족)라 자동 산출이 어려워서,
+   마지막에 직접 넣은 값을 다음 달로 이어 쓴다.
+
+   급여명세서를 받은 달은 실제 금액을 넣어 두면 그 항목만 그 달에 잠긴다.
+   ========================================================================== */
+
+const NON_TAX_CAP=200000;   // 식대·교통비 비과세 월 한도
+
+function payrollMonthKey(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+
+function payrollMonths(){
+  const s=data.settings;
+  if(!s.payrollMonths || typeof s.payrollMonths!=="object") s.payrollMonths={};
+  return s.payrollMonths;
+}
+
+function hasValue(v){
+  return v!==undefined && v!==null && v!=="" && !Number.isNaN(Number(v));
+}
+
+/* 그 달에 직접 넣어 둔 값들 */
+function monthOverride(key){
+  return payrollMonths()[key] || {};
+}
+
+/* 4대보험·소득세는 10원 미만을 절사한다. */
+function cut10(n){
+  return Math.floor(Number(n||0)/10)*10;
+}
+
+/* 해당 월 이전(그 달 포함)에 마지막으로 직접 넣은 값. 없으면 null */
+function carriedOver(key,field){
+  const months=Object.keys(payrollMonths()).filter(k=>k<=key).sort();
+  for(let i=months.length-1;i>=0;i--){
+    const v=payrollMonths()[months[i]]?.[field];
+    if(hasValue(v)) return Number(v);
+  }
+  return null;
+}
+
+/* 비과세 합계 — 직접 넣은 값이 있으면 그걸 쓰고, 없으면 식대·교통비로 계산한다. */
+function nonTaxableAmount(){
+  const s=data.settings;
+  const manual=Number(s.nonTaxableMonthly||0);
+  if(manual>0) return manual;
+  return Math.min(Number(s.meal||0),NON_TAX_CAP)+Math.min(Number(s.transport||0),NON_TAX_CAP);
+}
+
+/* 국민연금·건강보험의 기준이 되는 보수월액 */
+function insuranceBase(){
+  const s=data.settings;
+  const fixedPay=earningKeys.reduce((sum,k)=>sum+Number(s[k]||0),0);
+  return Number(s.insuranceBaseWage||0) || fixedPay;
+}
+
+/* 요율로 계산한 그 달 공제액. 요율이 0인 항목은 설정의 고정금액을 그대로 쓴다. */
+function autoDeductions(key,gross){
+  const s=data.settings;
+  const rate=(k)=>Number(s[k]||0);
+  const base=insuranceBase();
+
+  let pensionBase=base;
+  const floor=Number(s.pensionBaseFloor||0);
+  const cap=Number(s.pensionBaseCap||0);
+  if(floor>0) pensionBase=Math.max(pensionBase,floor);
+  if(cap>0) pensionBase=Math.min(pensionBase,cap);
+
+  const nationalPension=rate("rateNationalPension")>0
+    ? cut10(pensionBase*rate("rateNationalPension")/100)
+    : Number(s.nationalPension||0);
+
+  const healthInsurance=rate("rateHealthInsurance")>0
+    ? cut10(base*rate("rateHealthInsurance")/100)
+    : Number(s.healthInsurance||0);
+
+  // 장기요양은 '실제로 낸 건강보험료' 기준이라, 그 달 명세서 금액을 넣었으면
+  // 자동 계산값이 아니라 그 값을 기준으로 잡는다.
+  const overHealth=monthOverride(key).healthInsurance;
+  const healthBase=hasValue(overHealth) ? Number(overHealth) : healthInsurance;
+  const longTermCare=rate("rateLongTermCare")>0
+    ? cut10(healthBase*rate("rateLongTermCare")/100)
+    : Number(s.longTermCare||0);
+
+  const taxableGross=Math.max(0,gross-nonTaxableAmount());
+  const employmentInsurance=rate("rateEmploymentInsurance")>0
+    ? cut10(taxableGross*rate("rateEmploymentInsurance")/100)
+    : Number(s.employmentInsurance||0);
+
+  const incomeTax=carriedOver(key,"incomeTax") ?? Number(s.incomeTax||0);
+
+  const localTax=rate("rateLocalTax")>0
+    ? cut10(incomeTax*rate("rateLocalTax")/100)
+    : Number(s.localTax||0);
+
+  return {
+    incomeTax,localTax,employmentInsurance,healthInsurance,
+    longTermCare,nationalPension,
+    associationFee:Number(s.associationFee||0),
+    taxableGross,base,pensionBase
+  };
+}
+
+/* 그 달 최종 공제액. 직접 넣은 항목은 입력값이, 나머지는 자동값이 쓰인다. */
+function deductionsForMonth(key,gross){
+  const auto=autoDeductions(key,gross);
+  const over=monthOverride(key);
+  const amounts={};
+  const manual={};
+  deductionKeys.forEach(k=>{
+    if(hasValue(over[k])){
+      amounts[k]=Number(over[k]);
+      manual[k]=true;
+    }else{
+      amounts[k]=Number(auto[k]||0);
+      manual[k]=false;
+    }
+  });
+  return {amounts,manual,auto};
+}
 
 
 function totals(){
@@ -22,10 +170,12 @@ function totals(){
   let hours=overtimeHoursForMonth(sourceMonth);
   const overtimePay=hours*Number(s.hourlyOvertime||0);
   const fixedPay=earningKeys.reduce((sum,k)=>sum+Number(s[k]||0),0);
-  const deductions=deductionKeys.reduce((sum,k)=>sum+Number(s[k]||0),0);
   const gross=fixedPay+overtimePay;
+  const monthKey=payrollMonthKey(viewDate);
+  const {amounts,manual,auto}=deductionsForMonth(monthKey,gross);
+  const deductions=deductionKeys.reduce((sum,k)=>sum+Number(amounts[k]||0),0);
   const net=gross-deductions;
-  return {hours,overtimePay,fixedPay,deductions,gross,net};
+  return {hours,overtimePay,fixedPay,deductions,gross,net,monthKey,amounts,manual,auto};
 }
 
 function renderSummary(){
@@ -96,36 +246,100 @@ function renderPaydayCountdown(){
 function renderPayBreakdown(){
   const t=totals();
   const s=data.settings;
-  const labels={
-    basicSalary:"기본급",
-    technicalAllowance:"기술수당",
-    positionAllowance:"직급수당",
-    qualificationAllowance:"자격수당",
-    serviceAllowance:"근속수당",
-    jobDevelopment:"직무개발비",
-    transport:"교통비 보조",
-    meal:"식대",
-    incomeTax:"소득세",
-    localTax:"주민세(지방소득세)",
-    employmentInsurance:"고용보험",
-    healthInsurance:"건강보험",
-    longTermCare:"장기요양보험",
-    nationalPension:"국민연금",
-    associationFee:"사우회비"
-  };
   let rows="";
   earningKeys.forEach(k=>{
-    rows += `<div>${labels[k]}</div><div class="amount">${won(s[k])}</div>`;
+    rows += `<div>${payLabels[k]}</div><div class="amount">${won(s[k])}</div>`;
   });
   const sourceMonth=payrollOvertimeMonth();
   rows += `<div>${sourceMonth.getMonth()+1}월 야근비 (${t.hours}h)</div><div class="amount">${won(t.overtimePay)}</div>`;
   rows += `<div class="total">총 지급액</div><div class="amount total">${won(t.gross)}</div>`;
   deductionKeys.forEach(k=>{
-    rows += `<div>${labels[k]}</div><div class="amount">− ${won(s[k])}</div>`;
+    const tag=t.manual[k]
+      ? `<span class="pay-tag manual">명세서</span>`
+      : `<span class="pay-tag">자동</span>`;
+    rows += `<div>${payLabels[k]} ${tag}</div><div class="amount">− ${won(t.amounts[k])}</div>`;
   });
   rows += `<div class="total">공제 합계</div><div class="amount total">− ${won(t.deductions)}</div>`;
   rows += `<div class="total net">예상 실수령액</div><div class="amount total net">${won(t.net)}</div>`;
   $("payBreakdown").innerHTML=rows;
+}
+
+/* ------------------------------------------------ 이번 달 공제 직접 입력하기 */
+
+function renderMonthlyDeductions(){
+  const wrap=$("monthlyDeductionFields");
+  if(!wrap) return;
+
+  const t=totals();
+  const key=t.monthKey;
+  const over=monthOverride(key);
+  const year=viewDate.getFullYear();
+  const month=viewDate.getMonth()+1;
+
+  const title=$("monthlyDeductionTitle");
+  if(title) title.textContent=`${year}년 ${month}월 공제 입력`;
+
+  wrap.innerHTML=deductionKeys.map(k=>{
+    const manual=hasValue(over[k]);
+    const autoAmount=Number(t.auto[k]||0).toLocaleString("ko-KR");
+    return `<div class="field monthly-deduction${manual?" manual":""}">
+      <label for="md_${k}">${payLabels[k]}
+        <span class="pay-tag${manual?" manual":""}">${manual?"명세서":"자동"}</span>
+      </label>
+      <input id="md_${k}" type="number" min="0" step="10"
+             value="${manual?Number(over[k]):""}"
+             placeholder="자동 ${autoAmount}원" />
+    </div>`;
+  }).join("");
+
+  const note=$("monthlyDeductionNote");
+  if(note){
+    const filled=deductionKeys.filter(k=>hasValue(over[k]));
+    const carried=carriedOver(key,"incomeTax");
+    const carriedFrom=Object.keys(payrollMonths())
+      .filter(k=>k<=key && hasValue(payrollMonths()[k]?.incomeTax)).sort().pop();
+
+    let text=filled.length
+      ? `이 달 명세서 금액으로 넣어 둔 항목 — <strong>${filled.map(k=>payLabels[k]).join(" · ")}</strong>`
+      : `이 달은 아직 명세서 금액이 없어서 전부 자동 계산값이야.`;
+
+    if(carried!==null && carriedFrom && carriedFrom!==key){
+      const [cy,cm]=carriedFrom.split("-");
+      text += ` 소득세는 ${cy}년 ${Number(cm)}월에 넣은 `+
+              `${carried.toLocaleString("ko-KR")}원을 이어 쓰는 중이야.`;
+    }
+    text += `<br>과세 보수 ${Number(t.auto.taxableGross||0).toLocaleString("ko-KR")}원 `+
+            `(비과세 ${nonTaxableAmount().toLocaleString("ko-KR")}원 제외) · `+
+            `보수월액 ${Number(t.auto.base||0).toLocaleString("ko-KR")}원 기준.`;
+    note.innerHTML=text;
+  }
+}
+
+/* 화면에 입력한 값을 그 달에 저장한다. 비운 항목은 자동계산으로 되돌아간다. */
+function saveMonthlyDeductions(){
+  const key=payrollMonthKey(viewDate);
+  const entry={};
+  deductionKeys.forEach(k=>{
+    const el=$(`md_${k}`);
+    if(!el) return;
+    const v=el.value.trim();
+    if(v!=="") entry[k]=Number(v);
+  });
+
+  if(Object.keys(entry).length) payrollMonths()[key]=entry;
+  else delete payrollMonths()[key];
+
+  persist();
+  renderAll();
+}
+
+/* 그 달 입력을 모두 지워 자동 계산으로 되돌린다. */
+function resetMonthlyDeductions(){
+  const key=payrollMonthKey(viewDate);
+  if(!payrollMonths()[key]) return;
+  delete payrollMonths()[key];
+  persist();
+  renderAll();
 }
 
 function parseTimeMinutes(value){
