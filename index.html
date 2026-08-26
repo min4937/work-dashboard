@@ -495,11 +495,16 @@
 
             <div class="section-subtitle">자동계산 요율</div>
             <div class="settings-note" style="margin-bottom:13px">
-              4대보험·주민세는 요율이 정해져 있어서 자동으로 계산돼.
-              <strong>국민연금·건강보험·장기요양</strong>은 보수월액 기준이라 야근비가 늘어도 그 달 금액이 그대로고,
-              <strong>고용보험</strong>만 그 달 과세 보수에 따라 달라져. <strong>주민세</strong>는 소득세의 10%야.<br>
-              소득세는 간이세액표라 자동 산출이 어려워서, 마지막에 넣은 값을 다음 달로 이어 써.
-              <strong>요율을 0으로 두면</strong> 그 항목은 자동계산이 꺼지고 위의 기본값을 쓴다.
+              <strong>고용보험·주민세</strong>는 그 달 값에서 바로 나오니까 요율로 계산돼.
+              고용보험은 그 달 과세 보수 기준이라 야근비 따라 달라지고, 주민세는 소득세의 10%야.<br>
+              <strong>국민연금·건강보험·장기요양</strong>은 해마다 한 번 정해지는 기준액에 묶여 있어.
+              기준소득월액은 전년도 소득으로 7월에, 건강보험 보수월액은 4월 정산으로 정해지고 그대로 가서
+              이 달 급여로는 역산이 안 돼. 그래서 오른쪽 <strong>월별 공제 입력</strong>에 명세서 금액을
+              한 번 넣어 두면 그 값을 다음 달로 이어 쓰고, 넣은 적이 없을 때만 아래 요율로 근사치를 내.
+              소득세도 간이세액표라 마찬가지로 이어 써.<br>
+              <strong>비과세 합계</strong>는 보수월액과 과세 보수에서 빠지는 금액이라 명세서 기준으로 맞춰 둬.
+              비워 두면 식대·교통비를 각 20만원 한도로 잡는데, 회사가 교통비를 과세로 처리하면 실제와 달라져.<br>
+              <strong>요율을 0으로 두면</strong> 그 항목은 자동계산이 꺼지고 위의 기본값을 써.
             </div>
             <div class="row">
               <div class="field"><label for="rateNationalPension">국민연금 요율 (%)</label><input id="rateNationalPension" type="number" min="0" step="0.001" placeholder="4.5" /></div>
@@ -563,7 +568,10 @@
             <h2 class="section-title" id="monthlyDeductionTitle">이번 달 공제 입력</h2>
             <div class="settings-note" style="margin-bottom:13px">
               급여명세서를 받으면 그 달 실제 금액을 넣어. 넣은 항목만 그 달에 고정되고,
-              비워 두면 요율로 자동 계산된 값이 쓰여. 달 이동은 위쪽 월 이동 버튼을 따라가.
+              비워 두면 자동 계산된 값이 쓰여.<br>
+              그중 <strong>소득세·국민연금·건강보험·장기요양</strong>은 다음 달로도 이어 쓰니까 한 번만 넣으면 되고,
+              <strong>고용보험</strong>은 달마다 과세 보수가 달라져서 그 달에만 적용돼.
+              달 이동은 위쪽 월 이동 버튼을 따라가.
             </div>
             <div class="monthly-deduction-grid" id="monthlyDeductionFields"></div>
             <div class="actions" style="margin-top:12px">
