@@ -36,13 +36,16 @@ const payLabels={
 /* ==========================================================================
    월별 공제 : 자동계산 + 그 달만 덮어쓰기
 
-   4대보험·주민세는 요율이 정해져 있어 자동 계산된다. 다만 성격이 다르다.
-     · 국민연금 · 건강보험 · 장기요양 → '보수월액' 기준이라 그 달 야근비가
-       늘어도 금액이 그대로다. (해마다 4월 정산으로 한 번에 조정된다)
-     · 고용보험 → 그 달 실제 과세 보수 기준이라 야근비 따라 달라진다.
-     · 주민세 → 소득세의 10%로 딱 떨어진다.
-   소득세만 간이세액표(급여구간 × 부양가족)라 자동 산출이 어려워서,
-   마지막에 직접 넣은 값을 다음 달로 이어 쓴다.
+   공제 항목은 성격이 셋으로 갈린다.
+     · 국민연금 · 건강보험 · 장기요양 → 연 단위로 정해진 기준액에 묶여 있다.
+       기준소득월액은 전년도 소득으로 해마다 7월에, 건강보험 보수월액은 4월
+       정산으로 한 번 정해지고 그대로 간다. 그래서 이 달 급여로는 역산이 안 된다.
+       명세서 금액을 한 번 넣어 두면 그 값을 다음 달로 이어 쓴다.
+       (한 번도 넣은 적이 없을 때만 요율로 근사치를 낸다)
+     · 소득세 → 간이세액표(급여구간 × 부양가족)라 자동 산출이 어려워서
+       마찬가지로 마지막에 넣은 값을 이어 쓴다.
+     · 고용보험 · 주민세 → 그 달 값에서 바로 나온다. 고용보험은 그 달 과세
+       보수 기준이라 야근비 따라 달라지고, 주민세는 소득세의 10%로 떨어진다.
 
    급여명세서를 받은 달은 실제 금액을 넣어 두면 그 항목만 그 달에 잠긴다.
    ========================================================================== */
@@ -73,14 +76,17 @@ function cut10(n){
   return Math.floor(Number(n||0)/10)*10;
 }
 
+/* 해당 월 이전(그 달 포함)에 마지막으로 직접 넣은 달의 키. 없으면 null */
+function carriedFromMonth(key,field){
+  const months=Object.keys(payrollMonths())
+    .filter(k=>k<=key && hasValue(payrollMonths()[k]?.[field])).sort();
+  return months.length ? months[months.length-1] : null;
+}
+
 /* 해당 월 이전(그 달 포함)에 마지막으로 직접 넣은 값. 없으면 null */
 function carriedOver(key,field){
-  const months=Object.keys(payrollMonths()).filter(k=>k<=key).sort();
-  for(let i=months.length-1;i>=0;i--){
-    const v=payrollMonths()[months[i]]?.[field];
-    if(hasValue(v)) return Number(v);
-  }
-  return null;
+  const from=carriedFromMonth(key,field);
+  return from===null ? null : Number(payrollMonths()[from][field]);
 }
 
 /* 비과세 합계 — 직접 넣은 값이 있으면 그걸 쓰고, 없으면 식대·교통비로 계산한다. */
@@ -91,14 +97,20 @@ function nonTaxableAmount(){
   return Math.min(Number(s.meal||0),NON_TAX_CAP)+Math.min(Number(s.transport||0),NON_TAX_CAP);
 }
 
-/* 국민연금·건강보험의 기준이 되는 보수월액 */
+/* 국민연금·건강보험의 기준이 되는 보수월액.
+   비과세(식대 등)는 빼고 잡는다. 직접 넣어 둔 값이 있으면 그게 우선이다. */
 function insuranceBase(){
   const s=data.settings;
   const fixedPay=earningKeys.reduce((sum,k)=>sum+Number(s[k]||0),0);
-  return Number(s.insuranceBaseWage||0) || fixedPay;
+  return Number(s.insuranceBaseWage||0) || Math.max(0,fixedPay-nonTaxableAmount());
 }
 
-/* 요율로 계산한 그 달 공제액. 요율이 0인 항목은 설정의 고정금액을 그대로 쓴다. */
+/* 이어 쓰는 항목들 — 급여에서 역산이 안 돼 마지막에 넣은 명세서 금액을 그대로 쓴다. */
+const carriedKeys=["incomeTax","nationalPension","healthInsurance","longTermCare"];
+
+/* 요율로 계산한 그 달 공제액.
+   이어 쓸 값이 있으면 그게 먼저고, 없을 때만 요율로 근사치를 낸다.
+   요율이 0인 항목은 설정의 고정금액을 그대로 쓴다. */
 function autoDeductions(key,gross){
   const s=data.settings;
   const rate=(k)=>Number(s[k]||0);
@@ -110,21 +122,22 @@ function autoDeductions(key,gross){
   if(floor>0) pensionBase=Math.max(pensionBase,floor);
   if(cap>0) pensionBase=Math.min(pensionBase,cap);
 
-  const nationalPension=rate("rateNationalPension")>0
-    ? cut10(pensionBase*rate("rateNationalPension")/100)
-    : Number(s.nationalPension||0);
+  const nationalPension=carriedOver(key,"nationalPension")
+    ?? (rate("rateNationalPension")>0
+      ? cut10(pensionBase*rate("rateNationalPension")/100)
+      : Number(s.nationalPension||0));
 
-  const healthInsurance=rate("rateHealthInsurance")>0
-    ? cut10(base*rate("rateHealthInsurance")/100)
-    : Number(s.healthInsurance||0);
+  const healthInsurance=carriedOver(key,"healthInsurance")
+    ?? (rate("rateHealthInsurance")>0
+      ? cut10(base*rate("rateHealthInsurance")/100)
+      : Number(s.healthInsurance||0));
 
-  // 장기요양은 '실제로 낸 건강보험료' 기준이라, 그 달 명세서 금액을 넣었으면
-  // 자동 계산값이 아니라 그 값을 기준으로 잡는다.
-  const overHealth=monthOverride(key).healthInsurance;
-  const healthBase=hasValue(overHealth) ? Number(overHealth) : healthInsurance;
-  const longTermCare=rate("rateLongTermCare")>0
-    ? cut10(healthBase*rate("rateLongTermCare")/100)
-    : Number(s.longTermCare||0);
+  // 장기요양은 '실제로 낸 건강보험료' 기준이라, 건강보험이 이어 쓰는 값이면
+  // 그 값을 기준으로 잡는다.
+  const longTermCare=carriedOver(key,"longTermCare")
+    ?? (rate("rateLongTermCare")>0
+      ? cut10(healthInsurance*rate("rateLongTermCare")/100)
+      : Number(s.longTermCare||0));
 
   const taxableGross=Math.max(0,gross-nonTaxableAmount());
   const employmentInsurance=rate("rateEmploymentInsurance")>0
@@ -243,6 +256,54 @@ function renderPaydayCountdown(){
     : `월급날은 매월 ${configured}일이야. 토·일·공휴일이면 직전 평일로 자동 조정돼.`;
 }
 
+/* 공제 항목 옆에 붙는 근거 한 줄.
+   명세서 금액을 직접 넣은 달은 계산이 아니라 입력값이라 근거를 붙이지 않는다. */
+function deductionBasis(k,t){
+  const s=data.settings;
+  const rate=(key)=>Number(s[key]||0);
+  const by=(label,baseAmount,rateKey)=>
+    `${label} ${Number(baseAmount||0).toLocaleString("ko-KR")}원 × ${rate(rateKey)}% (10원 절사)`;
+  // 이어 쓰는 중이면 어느 달 명세서에서 온 값인지 밝혀 준다.
+  const carried=(field)=>{
+    const from=carriedFromMonth(t.monthKey,field);
+    if(!from) return "";
+    const [y,m]=from.split("-");
+    return `${y}년 ${Number(m)}월 명세서 값 이어 씀`;
+  };
+
+  if(t.manual[k]) return "";
+
+  switch(k){
+    case "nationalPension":
+      return carried("nationalPension") ||
+        (rate("rateNationalPension")>0
+          ? by("기준소득월액",t.auto.pensionBase,"rateNationalPension") : "설정 고정액");
+    case "healthInsurance":
+      return carried("healthInsurance") ||
+        (rate("rateHealthInsurance")>0
+          ? by("보수월액",t.auto.base,"rateHealthInsurance") : "설정 고정액");
+    case "longTermCare":
+      return carried("longTermCare") ||
+        (rate("rateLongTermCare")>0
+          ? by("건강보험료",t.amounts.healthInsurance,"rateLongTermCare") : "설정 고정액");
+    case "employmentInsurance":
+      return rate("rateEmploymentInsurance")>0
+        ? by("과세보수",t.auto.taxableGross,"rateEmploymentInsurance") : "설정 고정액";
+    case "localTax":
+      return rate("rateLocalTax")>0
+        ? by("소득세",t.amounts.incomeTax,"rateLocalTax") : "설정 고정액";
+    case "incomeTax":{
+      // 간이세액표는 자동 산출이 안 돼서 마지막에 직접 넣은 값을 이어 쓴다.
+      const from=carried("incomeTax");
+      return from ? `간이세액표 · ${from}` : "간이세액표 · 설정 고정액";
+    }
+    case "associationFee":
+      return "설정 고정액";
+    default:
+      return "";
+  }
+}
+
 function renderPayBreakdown(){
   const t=totals();
   const s=data.settings;
@@ -257,7 +318,10 @@ function renderPayBreakdown(){
     const tag=t.manual[k]
       ? `<span class="pay-tag manual">명세서</span>`
       : `<span class="pay-tag">자동</span>`;
-    rows += `<div>${payLabels[k]} ${tag}</div><div class="amount">− ${won(t.amounts[k])}</div>`;
+    const basis=deductionBasis(k,t);
+    const basisLine=basis ? `<span class="pay-basis">${basis}</span>` : "";
+    rows += `<div>${payLabels[k]} ${tag}${basisLine}</div>`+
+            `<div class="amount">− ${won(t.amounts[k])}</div>`;
   });
   rows += `<div class="total">공제 합계</div><div class="amount total">− ${won(t.deductions)}</div>`;
   rows += `<div class="total net">예상 실수령액</div><div class="amount total net">${won(t.net)}</div>`;
@@ -295,22 +359,28 @@ function renderMonthlyDeductions(){
   const note=$("monthlyDeductionNote");
   if(note){
     const filled=deductionKeys.filter(k=>hasValue(over[k]));
-    const carried=carriedOver(key,"incomeTax");
-    const carriedFrom=Object.keys(payrollMonths())
-      .filter(k=>k<=key && hasValue(payrollMonths()[k]?.incomeTax)).sort().pop();
+    // 이 달에 직접 넣지는 않았지만 지난 명세서 값을 이어 쓰는 항목들
+    const carriedNow=carriedKeys.filter(k=>{
+      const from=carriedFromMonth(key,k);
+      return from && from!==key;
+    });
 
     let text=filled.length
       ? `이 달 명세서 금액으로 넣어 둔 항목 — <strong>${filled.map(k=>payLabels[k]).join(" · ")}</strong>`
       : `이 달은 아직 명세서 금액이 없어서 전부 자동 계산값이야.`;
 
-    if(carried!==null && carriedFrom && carriedFrom!==key){
-      const [cy,cm]=carriedFrom.split("-");
-      text += ` 소득세는 ${cy}년 ${Number(cm)}월에 넣은 `+
-              `${carried.toLocaleString("ko-KR")}원을 이어 쓰는 중이야.`;
+    if(carriedNow.length){
+      const list=carriedNow.map(k=>{
+        const from=carriedFromMonth(key,k);
+        const [cy,cm]=from.split("-");
+        return `${payLabels[k]} ${carriedOver(key,k).toLocaleString("ko-KR")}원`+
+               `(${cy}년 ${Number(cm)}월)`;
+      }).join(" · ");
+      text += ` 지난 명세서 값을 이어 쓰는 항목 — <strong>${list}</strong>.`;
     }
     text += `<br>과세 보수 ${Number(t.auto.taxableGross||0).toLocaleString("ko-KR")}원 `+
             `(비과세 ${nonTaxableAmount().toLocaleString("ko-KR")}원 제외) · `+
-            `보수월액 ${Number(t.auto.base||0).toLocaleString("ko-KR")}원 기준.`;
+            `요율 계산용 보수월액 ${Number(t.auto.base||0).toLocaleString("ko-KR")}원 기준.`;
     note.innerHTML=text;
   }
 }

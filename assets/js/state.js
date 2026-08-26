@@ -32,8 +32,8 @@ const defaultSettings = {
      4대보험·주민세는 요율이 법으로 정해져 있어서 자동 계산이 된다.
      요율을 0으로 두면 그 항목은 자동계산을 끄고 위의 고정금액을 쓴다. */
   rateNationalPension:4.5,         // 기준소득월액 대비 (근로자 부담)
-  rateHealthInsurance:3.545,       // 보수월액 대비 (근로자 부담)
-  rateLongTermCare:12.95,          // 건강보험료 대비
+  rateHealthInsurance:3.595,       // 보수월액 대비 (근로자 부담)
+  rateLongTermCare:13.14,          // 건강보험료 대비
   rateEmploymentInsurance:0.9,     // 과세 보수 대비 (실업급여분)
   rateLocalTax:10,                 // 소득세 대비
   insuranceBaseWage:0,             // 보수월액. 0이면 고정 지급항목 합계를 쓴다
