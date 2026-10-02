@@ -1088,6 +1088,28 @@
   .chat-info-edit textarea{min-height:64px}
   .chat-info-block .chat-thread-link{margin-top:8px}
 
+  /* 알림 */
+  .chat-channel-btn.muted{opacity:.55}
+  .chat-channel-btn.muted .chat-badge{background:#9aa3af}
+  .chat-muted-tag{margin-left:auto;font-size:10px}
+  .chat-notify-group{display:flex;flex-direction:column;gap:2px;margin:0 18px}
+  .chat-notify-row{margin:0 18px}
+  .chat-notify-desktop{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px;font-size:12px;font-weight:700}
+  .chat-notify-test{padding:12px 18px}
+  .chat-toasts{position:fixed;right:20px;bottom:20px;z-index:60;display:flex;flex-direction:column;gap:8px;width:min(340px,calc(100vw - 32px))}
+  .chat-toast{
+    display:flex;align-items:flex-start;gap:10px;padding:12px;cursor:pointer;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 12px 32px rgba(20,25,35,.18);animation:chatToastIn .18s ease-out
+  }
+  .chat-toast:hover{border-color:#9eb9f5}
+  .chat-toast .chat-avatar{flex:0 0 36px}
+  .chat-toast-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .chat-toast-text b{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chat-toast-text span{font-size:13px;color:var(--text);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+  .chat-toast-close{border:0;background:transparent;color:var(--muted);font-size:16px;cursor:pointer;padding:0 2px}
+  @keyframes chatToastIn{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+
   @media(max-width:1100px){
     .chat-layout.side-open{grid-template-columns:220px minmax(0,1fr)}
     .chat-thread{position:absolute;top:0;right:0;bottom:0;z-index:6;width:min(100%,380px);box-shadow:-8px 0 24px rgba(20,25,35,.12)}

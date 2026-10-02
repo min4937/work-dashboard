@@ -3,7 +3,7 @@
    나머지는 기능별 파일로 나눴다.
      chat-thread.js   스레드 패널          chat-mention.js  @멘션 자동완성
      chat-files.js    파일 첨부            chat-typing.js   입력 중 표시
-     chat-notify.js   데스크톱 알림        chat-search.js   검색 · 메시지로 이동
+     chat-notify.js   알림 · 음소거        chat-search.js   검색 · 메시지로 이동
      chat-pins.js     메시지 고정          chat-channels.js 채널 찾기 · 정보 · 나가기 · 보관 · 초대
 
    1:1 대화도 kind='dm' 인 채널일 뿐이라 보내기·받기·읽음은 채널과 똑같이 돈다.
@@ -596,7 +596,10 @@ function markChatReadSoon(){
 }
 
 function renderChatBadges(){
-  const total=chat.channels.reduce((sum,c)=>sum+(c.unread_count||0),0);
+  // 음소거한 대화는 탭 제목 · 탭 뱃지의 합계에서 뺀다 (사이드바에는 흐리게 남는다)
+  const total=chat.channels
+    .filter(c=>!isChatChannelMuted(c.id))
+    .reduce((sum,c)=>sum+(c.unread_count||0),0);
   const badge=$("chatTabBadge");
   if(badge){
     badge.textContent=total>99 ? "99+" : String(total);
@@ -715,6 +718,7 @@ function openChatChannel(id){
   chat.editingId=null;
   closeChatThread();
   if(isChatSideOpen("pins") || isChatSideOpen("info")) closeChatSide();   // 이전 채널 내용이라
+  if(isChatSideOpen("notify")) renderChatNotifyPanel();                    // '이 대화' 음소거 칸만 바뀐다
   clearChatDrafts("main");   // 올린 경로가 이전 채널 폴더라 다른 채널로 보낼 수 없다
   // 안 읽은 게 있으면 그 앞에 '새 메시지' 줄을 긋는다
   chat.newSince=channel.unread_count>0 ? channel.last_read_id : null;
@@ -752,11 +756,14 @@ function chatChannelButton(c){
   const cls=["chat-channel-btn"];
   if(c.id===chat.activeId) cls.push("active");
   if(unread) cls.push("unread");
+  const muted=isChatChannelMuted(c.id);
+  if(muted) cls.push("muted");
   const icon=c.kind==="dm" ? chatMemberStatusDot(c.dm_user_id)
     : `<span class="chat-hash">${c.kind==="private" ? "🔒" : "#"}</span>`;
   return `<button type="button" class="${cls.join(" ")}" data-channel="${escapeHtml(c.id)}">`+
     `${icon}<span class="chat-channel-name">${escapeHtml(chatChannelLabel(c))}</span>`+
     `${c.archived ? '<small class="chat-archived-tag">보관됨</small>' : ""}`+
+    `${muted ? '<small class="chat-muted-tag" title="음소거">🔕</small>' : ""}`+
     `${unread ? `<span class="chat-badge">${unread>99?"99+":unread}</span>` : ""}</button>`;
 }
 
