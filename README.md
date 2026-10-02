@@ -22,7 +22,9 @@ assets/
     notice.js            팀 공지사항 (팀장만 작성)
     events.js            달력 중요일정 (개인 / 팀 공유)
     status.js            근무 상태바 (출근/자리비움/외근/퇴근) · 출·퇴근 시각 기록
-    chat.js              팀 채팅 (채널 · 메시지 · 안 읽음 · 실시간)
+    chat.js              팀 채팅 (채널 · 1:1 · 메시지 · 수정/삭제 · 리액션 · 안 읽음 · 실시간)
+    chat-thread.js       팀 채팅 스레드 패널
+    chat-mention.js      팀 채팅 @멘션 자동완성
     cloud.js             Supabase 클라이언트 · 프로필 · 팀 정보
     auth.js              회원가입 · 로그인 · 팀 생성/참여
     sync.js              개인 데이터 양방향 동기화 · 공휴일
@@ -34,7 +36,7 @@ supabase/
   patch-2026-08-calendar-events.sql 기존 프로젝트에 중요일정 테이블 추가
   patch-2026-08-kosis-indicators.sql 기존 프로젝트에 통계 지표 카탈로그 추가
   patch-2026-08-kosis-api-keys.sql   기존 프로젝트에 KOSIS 개인 인증키 보관표 추가
-  patch-2026-10-chat.sql             팀 채팅 표 · RLS · RPC · Broadcast 트리거
+  patch-2026-10-chat.sql             팀 채팅 표 · RLS · RPC · Broadcast 트리거 (기능이 늘면 덧붙임)
   functions/
     kosis-proxy/index.ts  KOSIS OpenAPI 프록시 (CORS 우회)
 ```
@@ -111,6 +113,8 @@ python -m http.server 8000
 | **KOSIS 인증키** | `kosis_api_keys` | **본인만** | 본인만 |
 | 채팅 채널 · 메시지 | `chat_channels` · `chat_messages` | 같은 팀 전원 | 보내기는 RPC 로만 |
 | 1:1 대화 메시지 | `chat_messages` (kind='dm' 채널) | **대화 당사자 두 명만** | 보내기는 RPC 로만 |
+| 메시지 수정·삭제 | `chat_messages` | — | **쓴 사람만** (RPC) |
+| 리액션 | `chat_reactions` | 메시지를 볼 수 있는 사람 | 본인 것만 (RPC) |
 | 채팅 읽음 위치 | `chat_members` | **본인만** | 본인만 |
 
 월급과 개인 연차 일수(총/사용/잔여)는 `user_state`에 들어 있고 RLS가 본인 행만
@@ -144,10 +148,23 @@ python -m http.server 8000
 방이며(RLS가 멤버 두 명으로 막는다), 같은 두 사람의 방은 하나만 생긴다. 상대가
 아직 아무 말도 안 한 방은 받는 쪽 목록에 나타나지 않다가 첫 메시지가 오면 뜬다.
 
+메시지에 마우스를 올리면 버튼 줄이 뜬다.
+
+| 버튼 | 기능 |
+|---|---|
+| 😊 | 리액션 (👍 ❤️ 😂 🎉 👀 🙏 ✅). 달린 칩을 누르면 나도 달거나 뺀다 |
+| 💬 | 스레드. 오른쪽 패널에서 답글을 단다. 원글 아래 `답글 N개` 가 붙는다 |
+| ✏️ | 내 메시지 고치기 (Enter 저장 · Esc 취소). 빈 입력칸에서 ↑ 를 눌러도 된다 |
+| 🗑️ | 내 메시지 삭제. 행은 남고 "삭제된 메시지야." 로 바뀐다 (스레드 원글 자리 유지) |
+
+입력칸에서 `@` 를 치면 팀원 목록이 뜨고 ↑↓ · Enter 로 넣는다. 나를 부른 메시지는
+노란 바탕으로 보인다. 스레드 답글은 채널의 안 읽은 수에 들어가지 않는다.
+
 ### 설정 (관리자, 한 번만)
 
 SQL Editor에 `supabase/patch-2026-10-chat.sql`을 붙여넣고 Run.
-1:1 대화가 추가되기 전에 실행했던 프로젝트도 **한 번 더** 실행한다 (여러 번 실행해도 안전).
+채팅 기능이 늘 때마다 이 파일에 덧붙이므로, 예전에 실행했어도 **한 번 더** 실행한다
+(여러 번 실행해도 안전).
 
 > Realtime 설정의 **Allow public access는 켜둔 채로** 둔다. 끄면 공지·상태바·업무일지의
 > 실시간 반영이 멈춘다. 채팅은 비공개(private) 채널로 구독하므로 켜져 있어도
@@ -170,7 +187,7 @@ SQL Editor에 `supabase/patch-2026-10-chat.sql`을 붙여넣고 Run.
 - 안 읽은 수는 `chat_members.last_read_id`(채널별 읽은 위치) 뒤에 있는 남의 메시지 수다.
   채팅 탭에서 맨 아래까지 보고 있을 때만 읽은 것으로 친다.
 
-조사 자료와 다음 단계(스레드 · 리액션 · 멘션 · 알림)는 `docs/chat-research.md`.
+조사 자료와 다음 단계(데스크톱 알림 · 타이핑 표시 · 파일 첨부 · 검색)는 `docs/chat-research.md`.
 
 ## 공유 파일 형식
 

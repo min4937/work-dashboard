@@ -1,5 +1,5 @@
 -- ----------------------------------------------------------------------------
--- 2026-10 패치 · 팀 채팅 (채널 · 1:1 대화 · 메시지 · 안 읽음)
+-- 2026-10 패치 · 팀 채팅 (채널 · 1:1 대화 · 스레드 · 리액션 · 수정/삭제 · 안 읽음)
 --
 -- 메시지는 chat_messages 표에 저장하고, 실시간 전달은 DB 트리거가 비공개
 -- Broadcast 채널로 쏜다 (Broadcast from Database). 화면은 이 신호를 받아
@@ -8,7 +8,7 @@
 --
 -- 쓰기는 모두 RPC 로만 한다 (직접 INSERT/UPDATE 정책을 두지 않는다).
 -- Supabase SQL Editor 에 붙여넣고 Run. 여러 번 실행해도 안전하다.
--- (1:1 대화가 추가됐으므로 예전에 이 파일을 실행했어도 한 번 더 실행한다)
+-- (기능이 추가될 때마다 이 파일에 덧붙이므로, 예전에 실행했어도 한 번 더 실행한다)
 --
 -- ※ Realtime 설정의 "Allow public access" 는 켜둔 채로 둔다.
 --    끄면 기존 공지·상태바·업무일지(공개 채널 구독)가 멈춘다.
@@ -58,7 +58,8 @@ create index if not exists chat_members_user_idx on public.chat_members (user_id
 
 -- 메시지. 순서는 서버가 매기는 id 하나로 정한다 (클라이언트 시계를 믿지 않는다).
 -- client_id 는 보낸 쪽이 만든 값으로, 재전송해도 한 번만 들어가게 하는 열쇠다.
--- parent_id(스레드) · edited_at · deleted_at 은 2단계에서 쓴다.
+-- parent_id 가 있으면 스레드 답글이다 (한 단계만. 답글에 답글은 없다).
+-- 삭제는 행을 지우지 않고 deleted_at 을 찍고 본문을 비운다 (답글이 달린 원글이 사라지지 않게).
 create table if not exists public.chat_messages (
   id         bigint generated always as identity primary key,
   client_id  uuid not null unique,
@@ -71,9 +72,22 @@ create table if not exists public.chat_messages (
   deleted_at timestamptz
 );
 
+-- 스레드 원글에 답글 수와 마지막 답글 시각을 들고 있게 한다 (목록의 '답글 3개' 표시용)
+alter table public.chat_messages add column if not exists reply_count   integer not null default 0;
+alter table public.chat_messages add column if not exists last_reply_at timestamptz;
+
 create index if not exists chat_messages_channel_idx on public.chat_messages (channel_id, id);
 create index if not exists chat_messages_parent_idx  on public.chat_messages (parent_id, id)
   where parent_id is not null;
+
+-- 리액션. 한 사람이 같은 메시지에 같은 이모지는 한 번만 단다.
+create table if not exists public.chat_reactions (
+  message_id bigint not null references public.chat_messages(id) on delete cascade,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  emoji      text not null check (char_length(emoji) between 1 and 16),
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id, emoji)
+);
 
 
 -- 2. 권한 판정 헬퍼 -----------------------------------------------------------
@@ -127,6 +141,7 @@ $$;
 alter table public.chat_channels enable row level security;
 alter table public.chat_members  enable row level security;
 alter table public.chat_messages enable row level security;
+alter table public.chat_reactions enable row level security;
 
 drop policy if exists chat_channels_select on public.chat_channels;
 create policy chat_channels_select on public.chat_channels
@@ -143,6 +158,14 @@ drop policy if exists chat_messages_select on public.chat_messages;
 create policy chat_messages_select on public.chat_messages
   for select to authenticated
   using (public.chat_can_access(channel_id));
+
+drop policy if exists chat_reactions_select on public.chat_reactions;
+create policy chat_reactions_select on public.chat_reactions
+  for select to authenticated
+  using (exists (
+    select 1 from public.chat_messages m
+    where m.id = message_id and public.chat_can_access(m.channel_id)
+  ));
 
 -- 비공개 Broadcast 채널 구독 권한
 --   chat:<채널 id>      → 그 채널을 볼 수 있는 사람
@@ -161,8 +184,9 @@ create policy chat_realtime_select on realtime.messages
 
 -- 4. Broadcast 트리거 ---------------------------------------------------------
 
--- 메시지가 저장되면 채널 토픽으로 행 전체를 쏜다.
+-- 메시지가 저장·수정되면 채널 토픽으로 행 전체를 쏜다. op 에 insert/update 를 붙인다.
 -- 저장(commit)이 끝난 뒤에 나가므로 "보였는데 DB 에는 없는" 메시지는 생기지 않는다.
+-- 수정·삭제·답글 수 변경도 모두 update 로 같은 길을 탄다.
 create or replace function public.chat_broadcast_message()
 returns trigger
 language plpgsql
@@ -171,7 +195,7 @@ set search_path = ''
 as $$
 begin
   perform realtime.send(
-    to_jsonb(new),
+    to_jsonb(new) || jsonb_build_object('op', lower(tg_op)),
     'message',
     'chat:' || new.channel_id::text,
     true
@@ -182,8 +206,46 @@ $$;
 
 drop trigger if exists chat_messages_broadcast on public.chat_messages;
 create trigger chat_messages_broadcast
-  after insert on public.chat_messages
+  after insert or update on public.chat_messages
   for each row execute function public.chat_broadcast_message();
+
+-- 리액션이 달리거나 빠지면 그 메시지의 채널 토픽으로 알린다
+create or replace function public.chat_broadcast_reaction()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r         record;
+  v_channel uuid;
+begin
+  if tg_op = 'DELETE' then
+    r := old;
+  else
+    r := new;
+  end if;
+
+  select m.channel_id into v_channel from public.chat_messages m where m.id = r.message_id;
+  if v_channel is null then
+    return null;   -- 메시지와 함께 지워지는 중
+  end if;
+
+  perform realtime.send(
+    jsonb_build_object('message_id', r.message_id, 'user_id', r.user_id,
+                       'emoji', r.emoji, 'op', lower(tg_op)),
+    'reaction',
+    'chat:' || v_channel::text,
+    true
+  );
+  return null;
+end;
+$$;
+
+drop trigger if exists chat_reactions_broadcast on public.chat_reactions;
+create trigger chat_reactions_broadcast
+  after insert or delete on public.chat_reactions
+  for each row execute function public.chat_broadcast_reaction();
 
 -- 채널이 생기면 팀 토픽으로 알린다 (받은 쪽은 채널 목록을 다시 읽는다)
 create or replace function public.chat_broadcast_channel()
@@ -371,11 +433,15 @@ $$;
 
 -- 메시지 보내기. 같은 client_id 로 다시 부르면 새로 만들지 않고 처음 것을 돌려준다
 -- (네트워크가 끊겨 재전송해도 두 번 올라가지 않는다).
--- 내가 보낸 메시지까지는 읽은 것으로 친다.
+-- p_parent 를 주면 그 메시지의 스레드 답글이 되고, 원글의 답글 수가 올라간다.
+-- 내가 보낸 채널 메시지까지는 읽은 것으로 친다.
+-- 인자가 늘었으므로 예전 3개짜리를 지워야 같은 이름 함수가 둘 생기지 않는다.
+drop function if exists public.send_chat_message(uuid, uuid, text);
 create or replace function public.send_chat_message(
   p_channel   uuid,
   p_client_id uuid,
-  p_body      text
+  p_body      text,
+  p_parent    bigint default null
 )
 returns public.chat_messages
 language plpgsql
@@ -397,25 +463,145 @@ begin
     raise exception '메시지는 4000자까지 보낼 수 있어.';
   end if;
 
-  insert into public.chat_messages (client_id, channel_id, user_id, body)
-  values (p_client_id, p_channel, v_uid, v_body)
+  if p_parent is not null then
+    perform 1 from public.chat_messages p
+    where p.id = p_parent and p.channel_id = p_channel
+      and p.parent_id is null and p.deleted_at is null;
+    if not found then
+      raise exception '답글을 달 메시지를 찾을 수 없어.';
+    end if;
+  end if;
+
+  insert into public.chat_messages (client_id, channel_id, user_id, parent_id, body)
+  values (p_client_id, p_channel, v_uid, p_parent, v_body)
   on conflict (client_id) do nothing
   returning * into v_row;
 
   if v_row.id is null then
+    -- 재전송: 처음 들어간 것을 돌려준다 (답글 수도 다시 올리지 않는다)
     select * into v_row from public.chat_messages
     where client_id = p_client_id and user_id = v_uid;
     if v_row.id is null then
       raise exception '메시지를 보내지 못했어.';
     end if;
+  elsif p_parent is not null then
+    update public.chat_messages
+    set reply_count = reply_count + 1, last_reply_at = v_row.created_at
+    where id = p_parent;
   end if;
 
-  insert into public.chat_members (channel_id, user_id, last_read_id)
-  values (p_channel, v_uid, v_row.id)
-  on conflict (channel_id, user_id)
-  do update set last_read_id = greatest(public.chat_members.last_read_id, excluded.last_read_id);
+  if v_row.parent_id is null then
+    insert into public.chat_members (channel_id, user_id, last_read_id)
+    values (p_channel, v_uid, v_row.id)
+    on conflict (channel_id, user_id)
+    do update set last_read_id = greatest(public.chat_members.last_read_id, excluded.last_read_id);
+  end if;
 
   return v_row;
+end;
+$$;
+
+-- 내 메시지 고치기
+create or replace function public.edit_chat_message(p_id bigint, p_body text)
+returns public.chat_messages
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid  uuid := auth.uid();
+  v_body text := regexp_replace(coalesce(p_body, ''), '^\s+|\s+$', '', 'g');
+  v_row  public.chat_messages;
+begin
+  select * into v_row from public.chat_messages where id = p_id;
+  if v_row.id is null or v_row.user_id is distinct from v_uid
+     or v_row.deleted_at is not null or not public.chat_can_access(v_row.channel_id) then
+    raise exception '이 메시지는 고칠 수 없어.';
+  end if;
+  if char_length(v_body) < 1 or char_length(v_body) > 4000 then
+    raise exception '메시지는 1~4000자로 써줘.';
+  end if;
+  if v_body = v_row.body then
+    return v_row;
+  end if;
+
+  update public.chat_messages
+  set body = v_body, edited_at = now()
+  where id = p_id
+  returning * into v_row;
+  return v_row;
+end;
+$$;
+
+-- 내 메시지 지우기. 행은 남기고 본문만 비운다 (답글이 달린 원글 자리를 지키려고).
+-- 답글을 지우면 원글의 답글 수도 하나 줄인다.
+create or replace function public.delete_chat_message(p_id bigint)
+returns public.chat_messages
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_row public.chat_messages;
+begin
+  select * into v_row from public.chat_messages where id = p_id;
+  if v_row.id is null or v_row.user_id is distinct from v_uid
+     or not public.chat_can_access(v_row.channel_id) then
+    raise exception '이 메시지는 지울 수 없어.';
+  end if;
+  if v_row.deleted_at is not null then
+    return v_row;
+  end if;
+
+  delete from public.chat_reactions where message_id = p_id;
+
+  update public.chat_messages
+  set body = '(삭제됨)', deleted_at = now()
+  where id = p_id
+  returning * into v_row;
+
+  if v_row.parent_id is not null then
+    update public.chat_messages
+    set reply_count = greatest(reply_count - 1, 0)
+    where id = v_row.parent_id;
+  end if;
+
+  return v_row;
+end;
+$$;
+
+-- 리액션 달기/빼기. 이미 있으면 빼고 없으면 단다. 단 쪽이면 true.
+create or replace function public.toggle_chat_reaction(p_message bigint, p_emoji text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid   uuid := auth.uid();
+  v_emoji text := btrim(coalesce(p_emoji, ''));
+  v_ok    boolean;
+begin
+  select public.chat_can_access(m.channel_id) and m.deleted_at is null into v_ok
+  from public.chat_messages m where m.id = p_message;
+  if v_uid is null or not coalesce(v_ok, false) then
+    raise exception '이 메시지에는 반응할 수 없어.';
+  end if;
+  if char_length(v_emoji) < 1 or char_length(v_emoji) > 16 then
+    raise exception '이모지가 올바르지 않아.';
+  end if;
+
+  delete from public.chat_reactions
+  where message_id = p_message and user_id = v_uid and emoji = v_emoji;
+  if found then
+    return false;
+  end if;
+
+  insert into public.chat_reactions (message_id, user_id, emoji)
+  values (p_message, v_uid, v_emoji)
+  on conflict do nothing;
+  return true;
 end;
 $$;
 

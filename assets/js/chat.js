@@ -1,5 +1,6 @@
 /* ============================================================================
-   팀 채팅 (채널 · 1:1 대화 · 메시지 · 안 읽음)
+   팀 채팅 (채널 · 1:1 대화 · 메시지 · 수정/삭제 · 리액션 · 안 읽음)
+   스레드 패널은 chat-thread.js, @멘션 자동완성은 chat-mention.js
 
    1:1 대화도 kind='dm' 인 채널일 뿐이라 보내기·받기·읽음은 채널과 똑같이 돈다.
    다른 점은 멤버가 두 사람뿐이고, 이름 대신 상대 이름을 보여준다는 것.
@@ -9,6 +10,8 @@
               → DB 트리거가 chat:<채널> 비공개 Broadcast 로 행을 쏜다
      받기     Broadcast 로 온 행을 id 순서 자리에 끼워 넣는다
               내가 보낸 것은 client_id 로 '전송 중' 칸과 맞바꾼다
+     고침     수정·삭제·답글 수 변경은 같은 행이 op:'update' 로 다시 온다 → 덮어쓴다
+     리액션   reaction 이벤트로 (메시지, 사람, 이모지) 를 더하거나 뺀다
      빈 곳    재접속(SUBSCRIBED)·탭 복귀 때 최근 메시지를 DB 에서 다시 읽어 합친다
 
    순서는 언제나 서버가 매긴 id 로 정한다. 도착 순서는 믿지 않는다.
@@ -18,7 +21,7 @@
 const CHAT_PAGE_SIZE=50;
 const CHAT_GROUP_GAP_MS=5*60*1000;   // 같은 사람이 5분 안에 이어 쓰면 이름 줄을 생략
 const CHAT_BASE_TITLE=document.title;
-const CHAT_MESSAGE_COLUMNS="id,client_id,channel_id,user_id,parent_id,body,created_at,edited_at,deleted_at";
+const CHAT_REACTION_EMOJIS=["👍","❤️","😂","🎉","👀","🙏","✅"];
 
 let chat=emptyChatState();
 
@@ -38,7 +41,10 @@ function emptyChatState(){
     readTimer:null,
     refreshTimer:null,
     creating:false,
-    openingDm:false
+    openingDm:false,
+    reactions:new Map(),    // 메시지 id → Map(이모지 → Set(사람 id))
+    editingId:null,         // 지금 고치고 있는 메시지 id
+    editDraft:""
   };
 }
 
@@ -73,6 +79,8 @@ function stopChat(){
   }
   clearTimeout(chat.readTimer);
   clearTimeout(chat.refreshTimer);
+  closeChatThread();
+  closeChatReactionPicker();
   chat=emptyChatState();
   renderChatBadges();
   if(isChatPageActive()) renderChatPage();
@@ -140,6 +148,7 @@ function syncChatSubscriptions(){
     const ch=teamCloud.client
       .channel(`chat:${id}`,{config:{private:true}})
       .on("broadcast",{event:"message"},({payload})=>onChatMessage(payload))
+      .on("broadcast",{event:"reaction"},({payload})=>onChatReaction(payload))
       .subscribe(status=>{
         if(status!=="SUBSCRIBED") return;
         // 첫 구독은 방금 목록을 읽었으니 넘어간다. 그 뒤의 SUBSCRIBED 는 끊겼다 다시 붙은 것이다.
@@ -157,16 +166,36 @@ function syncChatSubscriptions(){
   }
 }
 
-function onChatMessage(row){
-  if(!row || !row.id || row.parent_id) return;
-  row.id=Number(row.id);
+function normalizeChatRow(row){
+  return {
+    ...row,
+    id:Number(row.id),
+    parent_id:row.parent_id ? Number(row.parent_id) : null,
+    reply_count:Number(row.reply_count||0)
+  };
+}
+
+/* 실시간으로 온 행이든 RPC 응답이든 여기로 모은다.
+   새 메시지면 끼워 넣고 안 읽음을 세고, 이미 있는 메시지면(수정·삭제·답글 수) 덮어쓴다. */
+function onChatMessage(raw){
+  if(!raw || !raw.id) return;
+  const row=normalizeChatRow(raw);
+  chat.pending.delete(row.client_id);
+
+  // 스레드 답글은 채널 목록·안 읽음과 무관하다. 열려 있는 스레드만 갱신한다.
+  if(row.parent_id){
+    onChatThreadRow(row);
+    return;
+  }
+
   const channel=chatChannel(row.channel_id);
   if(!channel) return;
 
-  const isNew=mergeChatMessages(row.channel_id,[row]);
-  chat.pending.delete(row.client_id);
-  if(!isNew) {
-    if(row.channel_id===chat.activeId) renderChatMessages();
+  // 아직 안 연 채널은 목록이 없으니 op 로 새 글인지 판단한다
+  const loaded=chat.messages.has(row.channel_id);
+  const isNew=loaded ? mergeChatMessages(row.channel_id,[row]) : row.op!=="update";
+  if(!isNew){
+    if(row.channel_id===chat.activeId) rerenderChatViews();
     return;
   }
 
@@ -191,17 +220,21 @@ function onChatMessage(row){
 
 /* ------------------------------------------------------------- 메시지 불러오기 */
 
-/* 배열에 id 순서대로 끼워 넣는다. 새로 들어간 게 있으면 true. */
+/* 배열에 id 순서대로 끼워 넣는다. 이미 있는 id 는 서버 값으로 덮어쓴다(수정·삭제·답글 수).
+   새로 들어간 게 있으면 true. */
 function mergeChatMessages(channelId,rows){
   const list=chat.messages.get(channelId);
   if(!list) return true;   // 아직 안 연 채널은 열 때 DB 에서 읽는다
-  const known=new Set(list.map(m=>m.id));
+  const index=new Map(list.map((m,i)=>[m.id,i]));
   let added=false;
   rows.forEach(r=>{
-    const id=Number(r.id);
-    if(known.has(id)) return;
-    known.add(id);
-    list.push({...r,id});
+    const row=normalizeChatRow(r);
+    if(index.has(row.id)){
+      list[index.get(row.id)]=row;
+      return;
+    }
+    index.set(row.id,list.length);
+    list.push(row);
     added=true;
   });
   if(added) list.sort((a,b)=>a.id-b.id);
@@ -211,7 +244,7 @@ function mergeChatMessages(channelId,rows){
 async function fetchChatMessages(channelId,beforeId=null){
   let q=teamCloud.client
     .from("chat_messages")
-    .select(CHAT_MESSAGE_COLUMNS)
+    .select("*")
     .eq("channel_id",channelId)
     .is("parent_id",null)
     .order("id",{ascending:false})
@@ -219,7 +252,9 @@ async function fetchChatMessages(channelId,beforeId=null){
   if(beforeId) q=q.lt("id",beforeId);
   const {data,error}=await q;
   if(error) throw error;
-  return (data||[]).map(r=>({...r,id:Number(r.id)})).reverse();
+  const rows=(data||[]).map(normalizeChatRow).reverse();
+  await loadChatReactions(rows.map(r=>r.id));
+  return rows;
 }
 
 /* 처음 열 때: 최근 50건 */
@@ -314,15 +349,13 @@ async function sendChatMessage(){
 /* 같은 client_id 로 보내므로 재시도해도 두 번 올라가지 않는다. */
 async function deliverChatMessage(item){
   item.failed=false;
-  const {data,error}=await teamCloud.client.rpc("send_chat_message",{
-    p_channel:item.channel_id,
-    p_client_id:item.client_id,
-    p_body:item.body
-  });
+  const args={p_channel:item.channel_id,p_client_id:item.client_id,p_body:item.body};
+  if(item.parent_id) args.p_parent=item.parent_id;   // 답글일 때만 넘긴다
+  const {data,error}=await teamCloud.client.rpc("send_chat_message",args);
   if(error){
     console.error(error);
     item.failed=true;
-    if(item.channel_id===chat.activeId) renderChatMessages();
+    if(item.channel_id===chat.activeId) rerenderChatViews();
     return;
   }
   // Broadcast 보다 응답이 먼저 오면 여기서 확정한다. 나중에 온 쪽은 id 중복으로 무시된다.
@@ -332,13 +365,162 @@ async function deliverChatMessage(item){
 function retryChatMessage(clientId){
   const item=chat.pending.get(clientId);
   if(!item) return;
-  renderChatMessages();
+  rerenderChatViews();
   deliverChatMessage(item);
 }
 
 function discardChatMessage(clientId){
   chat.pending.delete(clientId);
-  renderChatMessages();
+  rerenderChatViews();
+}
+
+
+/* ---------------------------------------------------------------- 수정 · 삭제 */
+
+function findChatMessage(id){
+  for(const list of chat.messages.values()){
+    const m=list.find(x=>x.id===id);
+    if(m) return m;
+  }
+  return chatThreadReply(id);
+}
+
+function startChatEdit(id){
+  const m=findChatMessage(id);
+  if(!m || m.user_id!==teamCloud.user?.id || m.deleted_at) return;
+  chat.editingId=id;
+  chat.editDraft=m.body;
+  rerenderChatViews();
+  const input=$("chatEditInput");
+  if(input){
+    input.focus();
+    input.setSelectionRange(input.value.length,input.value.length);
+  }
+}
+
+function cancelChatEdit(){
+  chat.editingId=null;
+  chat.editDraft="";
+  rerenderChatViews();
+}
+
+async function saveChatEdit(){
+  const id=chat.editingId;
+  const body=($("chatEditInput")?.value||chat.editDraft).trim();
+  if(!id) return;
+  if(!body){
+    setChatNotice("내용을 비울 수는 없어. 지우려면 삭제를 눌러줘.",true);
+    return;
+  }
+  const {data,error}=await teamCloud.client.rpc("edit_chat_message",{p_id:id,p_body:body});
+  if(error){
+    setChatNotice(error.message||"메시지를 고치지 못했어.",true);
+    return;
+  }
+  chat.editingId=null;
+  chat.editDraft="";
+  onChatMessage(data);
+  rerenderChatViews();
+}
+
+async function deleteChatMessage(id){
+  if(!confirm("이 메시지를 삭제할까? 되돌릴 수 없어.")) return;
+  const {data,error}=await teamCloud.client.rpc("delete_chat_message",{p_id:id});
+  if(error){
+    setChatNotice(error.message||"메시지를 지우지 못했어.",true);
+    return;
+  }
+  chat.reactions.delete(id);
+  onChatMessage(data);
+}
+
+
+/* ------------------------------------------------------------------- 리액션 */
+
+/* 서버에서 읽은 값으로 그 메시지들의 리액션을 통째로 바꾼다. */
+async function loadChatReactions(ids){
+  if(!ids.length || !teamCloud.client) return;
+  const {data,error}=await teamCloud.client
+    .from("chat_reactions")
+    .select("message_id,user_id,emoji")
+    .in("message_id",ids);
+  if(error){
+    console.error(error);
+    return;
+  }
+  ids.forEach(id=>chat.reactions.delete(id));
+  (data||[]).forEach(r=>applyChatReaction(Number(r.message_id),r.user_id,r.emoji,true));
+}
+
+/* 같은 이벤트가 두 번 와도 결과가 같도록 Set 에 넣고 뺀다. */
+function applyChatReaction(messageId,userId,emoji,add){
+  let byEmoji=chat.reactions.get(messageId);
+  if(!byEmoji){
+    if(!add) return;
+    byEmoji=new Map();
+    chat.reactions.set(messageId,byEmoji);
+  }
+  let users=byEmoji.get(emoji);
+  if(!users){
+    if(!add) return;
+    users=new Set();
+    byEmoji.set(emoji,users);
+  }
+  if(add) users.add(userId);
+  else users.delete(userId);
+  if(!users.size) byEmoji.delete(emoji);
+  if(!byEmoji.size) chat.reactions.delete(messageId);
+}
+
+function onChatReaction(p){
+  if(!p || !p.message_id) return;
+  applyChatReaction(Number(p.message_id),p.user_id,p.emoji,p.op!=="delete");
+  rerenderChatViews();
+}
+
+/* 누르면 바로 화면에 반영하고, 실패하면 되돌린다. */
+async function toggleChatReaction(messageId,emoji){
+  const me=teamCloud.user?.id;
+  const had=!!chat.reactions.get(messageId)?.get(emoji)?.has(me);
+  applyChatReaction(messageId,me,emoji,!had);
+  rerenderChatViews();
+
+  const {error}=await teamCloud.client.rpc("toggle_chat_reaction",{p_message:messageId,p_emoji:emoji});
+  if(error){
+    console.error(error);
+    applyChatReaction(messageId,me,emoji,had);
+    rerenderChatViews();
+    setChatNotice(error.message||"반응을 남기지 못했어.",true);
+  }
+}
+
+let chatReactionPicker=null;
+
+function openChatReactionPicker(anchor,messageId){
+  closeChatReactionPicker();
+  const box=document.createElement("div");
+  box.className="chat-react-picker";
+  box.innerHTML=CHAT_REACTION_EMOJIS
+    .map(e=>`<button type="button" data-pick-emoji="${e}">${e}</button>`).join("");
+  box.addEventListener("click",e=>{
+    const btn=e.target.closest("[data-pick-emoji]");
+    if(!btn) return;
+    closeChatReactionPicker();
+    toggleChatReaction(messageId,btn.dataset.pickEmoji);
+  });
+  document.body.appendChild(box);
+
+  // 버튼 바로 위에 띄우되 화면 밖으로 나가지 않게
+  const r=anchor.getBoundingClientRect();
+  const w=box.offsetWidth, h=box.offsetHeight;
+  box.style.left=`${Math.max(8,Math.min(window.innerWidth-w-8,r.right-w))}px`;
+  box.style.top=`${r.top-h-6<8 ? r.bottom+6 : r.top-h-6}px`;
+  chatReactionPicker=box;
+}
+
+function closeChatReactionPicker(){
+  chatReactionPicker?.remove();
+  chatReactionPicker=null;
 }
 
 
@@ -454,6 +636,8 @@ function openChatChannel(id){
   const channel=chatChannel(id);
   if(!channel) return;
   chat.activeId=id;
+  chat.editingId=null;
+  closeChatThread();
   // 안 읽은 게 있으면 그 앞에 '새 메시지' 줄을 긋는다
   chat.newSince=channel.unread_count>0 ? channel.last_read_id : null;
   showChatJump(false);
@@ -547,14 +731,158 @@ function chatDayLabel(iso){
   return new Date(iso).toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
 }
 
-/* 본문은 escapeHtml 을 거친다. http/https 주소만 링크로 바꾼다. */
+/* 본문은 escapeHtml 을 거친다. http/https 주소만 링크로 바꾸고, @팀원이름 은 강조한다. */
 function chatBodyHtml(text){
   const parts=String(text||"").split(/(https?:\/\/[^\s<>"']+)/g);
   return parts.map((part,i)=>{
-    if(i%2===0) return escapeHtml(part);
+    if(i%2===0) return chatHighlightMentions(escapeHtml(part));
     const url=escapeHtml(part);
     return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
   }).join("");
+}
+
+function escapeRegExp(text){
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+}
+
+function chatMyName(){
+  return teamCloud.members.find(m=>m.user_id===teamCloud.user?.id)?.display_name||"";
+}
+
+/* 이미 이스케이프된 문자열에서 '@이름' 을 찾는다. 이름도 같은 방식으로 이스케이프해 맞춘다.
+   긴 이름부터 맞춰야 '김민' 이 '김민수' 를 먼저 잡아먹지 않는다. */
+function chatHighlightMentions(html){
+  const myName=chatMyName();
+  const names=teamCloud.members
+    .map(m=>m.display_name).filter(Boolean)
+    .map(n=>({raw:n,esc:escapeHtml(n)}))
+    .sort((a,b)=>b.esc.length-a.esc.length);
+  if(!names.length || !html.includes("@")) return html;
+  const pattern=names.map(n=>escapeRegExp(n.esc)).join("|");
+  const re=new RegExp(`@(${pattern})`,"g");
+  return html.replace(re,(all,esc)=>{
+    const mine=names.find(n=>n.esc===esc)?.raw===myName;
+    return `<span class="chat-mention${mine?" me":""}">${all}</span>`;
+  });
+}
+
+function chatMentionsMe(m){
+  const myName=chatMyName();
+  return !!myName && m.user_id!==teamCloud.user?.id && String(m.body||"").includes(`@${myName}`);
+}
+
+/* 리액션 칩 줄 */
+function chatReactionsHtml(id){
+  const byEmoji=chat.reactions.get(id);
+  if(!byEmoji?.size) return "";
+  const me=teamCloud.user?.id;
+  const chips=[...byEmoji].map(([emoji,users])=>{
+    const who=[...users].map(chatMemberName).join(", ");
+    return `<button type="button" class="chat-reaction${users.has(me)?" mine":""}" `+
+      `data-react="${id}" data-emoji="${escapeHtml(emoji)}" title="${escapeHtml(who)}">`+
+      `${escapeHtml(emoji)} <b>${users.size}</b></button>`;
+  }).join("");
+  return `<div class="chat-reactions">${chips}</div>`;
+}
+
+/* 마우스를 올리면 뜨는 버튼 줄. 전송 중이거나 지운 메시지에는 없다. */
+function chatActionsHtml(m,inThread){
+  if(!m.id || m.deleted_at) return "";
+  const mine=m.user_id===teamCloud.user?.id;
+  const btn=(act,icon,title)=>`<button type="button" data-act="${act}" data-id="${m.id}" title="${title}">${icon}</button>`;
+  return `<div class="chat-actions">`+
+    btn("react","😊","반응 남기기")+
+    (!inThread && !m.parent_id ? btn("thread","💬","스레드로 답글") : "")+
+    (mine ? btn("edit","✏️","고치기")+btn("delete","🗑️","삭제") : "")+
+    `</div>`;
+}
+
+/* 메시지 한 칸. inThread 면 스레드 패널용(스레드 링크 없음, 원글은 그 자리에서 못 고침). */
+function chatMessageHtml(m,{continued=false,inThread=false}={}){
+  const cls=["chat-msg"];
+  if(continued) cls.push("cont");
+  if(m.pending) cls.push("pending");
+  if(m.failed) cls.push("failed");
+  if(!m.deleted_at && chatMentionsMe(m)) cls.push("mention");
+
+  const name=chatMemberName(m.user_id);
+  const time=chatTimeLabel(m.created_at);
+  const gutter=continued
+    ? `<span class="chat-gutter-time">${time}</span>`
+    : `<span class="chat-avatar" style="background:${chatAvatarColor(m.user_id)}">${escapeHtml(name.slice(0,1))}</span>`;
+  const head=continued ? "" :
+    `<div class="chat-meta"><span class="chat-name">${escapeHtml(name)}</span><span class="chat-time">${time}</span></div>`;
+
+  // 스레드 원글은 본문 목록에서만, 답글은 스레드에서만 고친다 (입력칸이 두 곳에 생기지 않게)
+  const editable=chat.editingId===m.id && (inThread ? !!m.parent_id : !m.parent_id);
+  let body;
+  if(m.deleted_at){
+    body='<div class="chat-body chat-deleted">삭제된 메시지야.</div>';
+  }else if(editable){
+    body=`<div class="chat-edit"><textarea id="chatEditInput" class="chat-edit-input" rows="2" maxlength="4000">${escapeHtml(chat.editDraft)}</textarea>`+
+      `<div class="chat-edit-actions"><span>Enter 저장 · Esc 취소</span>`+
+      `<button type="button" class="mini-btn" data-edit-cancel>취소</button>`+
+      `<button type="button" class="btn primary" data-edit-save>저장</button></div></div>`;
+  }else{
+    body=`<div class="chat-body">${chatBodyHtml(m.body)}${m.edited_at?'<span class="chat-edited">(수정됨)</span>':""}</div>`;
+  }
+
+  let status="";
+  if(m.failed){
+    status=`<div class="chat-fail">전송 실패 · `+
+      `<button type="button" data-retry="${escapeHtml(m.client_id)}">다시 보내기</button> · `+
+      `<button type="button" data-discard="${escapeHtml(m.client_id)}">지우기</button></div>`;
+  }
+
+  const reactions=m.id && !m.deleted_at ? chatReactionsHtml(m.id) : "";
+  const thread=!inThread && !m.parent_id && m.reply_count>0
+    ? `<button type="button" class="chat-thread-link" data-thread="${m.id}">💬 답글 ${m.reply_count}개`+
+      `${m.last_reply_at?`<span> · 마지막 ${chatTimeLabel(m.last_reply_at)}</span>`:""}</button>`
+    : "";
+
+  return `<div class="${cls.join(" ")}">${gutter}<div class="chat-content">${head}${body}${status}${reactions}${thread}</div>`+
+    `${editable ? "" : chatActionsHtml(m,inThread)}</div>`;
+}
+
+/* 목록(본문 또는 스레드) 그리기 공용: 날짜 줄 · 이어쓰기 묶음 · 새 메시지 줄 */
+function chatListHtml(items,{newSince=null,inThread=false}={}){
+  const me=teamCloud.user?.id;
+  const html=[];
+  let prev=null;
+  let newLineDrawn=false;
+  items.forEach(m=>{
+    const dayChanged=!prev || chatDayKey(prev.created_at)!==chatDayKey(m.created_at);
+    if(dayChanged) html.push(`<div class="chat-day"><span>${escapeHtml(chatDayLabel(m.created_at))}</span></div>`);
+
+    let newLine=false;
+    if(!newLineDrawn && newSince!==null && m.id && m.id>newSince && m.user_id!==me){
+      html.push('<div class="chat-newline"><span>새 메시지</span></div>');
+      newLineDrawn=newLine=true;
+    }
+
+    const continued=!!prev && !dayChanged && !newLine
+      && prev.user_id===m.user_id && !prev.deleted_at
+      && new Date(m.created_at)-new Date(prev.created_at)<CHAT_GROUP_GAP_MS;
+
+    html.push(chatMessageHtml(m,{continued,inThread}));
+    prev=m;
+  });
+  return html.join("");
+}
+
+/* 고치는 중이던 입력칸이 다시 그려져도 커서를 잃지 않게 */
+function restoreChatEditFocus(wasEditing){
+  if(!wasEditing) return;
+  const input=$("chatEditInput");
+  if(!input) return;
+  input.focus();
+  input.setSelectionRange(input.value.length,input.value.length);
+}
+
+function rerenderChatViews(){
+  if(!isChatPageActive()) return;
+  renderChatMessages();
+  renderChatThread();
 }
 
 function renderChatMessages({stickToBottom=false}={}){
@@ -566,9 +894,10 @@ function renderChatMessages({stickToBottom=false}={}){
 
   const wasAtBottom=isChatListAtBottom();
   const prevTop=box.scrollTop;
-  const me=teamCloud.user?.id;
+  const wasEditing=document.activeElement?.id==="chatEditInput";
 
-  const pending=[...chat.pending.values()].filter(p=>p.channel_id===channelId);
+  // 스레드 답글로 보내는 중인 것은 본문 목록에 그리지 않는다
+  const pending=[...chat.pending.values()].filter(p=>p.channel_id===channelId && !p.parent_id);
   const items=[...list,...pending.map(p=>({...p,id:null,pending:true}))];
 
   if(!items.length){
@@ -576,54 +905,14 @@ function renderChatMessages({stickToBottom=false}={}){
     return;
   }
 
-  const html=[];
-  if(chat.hasMore.get(channelId)) html.push('<div class="chat-more">위로 올리면 이전 메시지를 더 불러와.</div>');
-  else html.push('<div class="chat-start">채널의 첫 메시지야.</div>');
+  const head=chat.hasMore.get(channelId)
+    ? '<div class="chat-more">위로 올리면 이전 메시지를 더 불러와.</div>'
+    : '<div class="chat-start">채널의 첫 메시지야.</div>';
+  box.innerHTML=head+chatListHtml(items,{newSince:chat.newSince});
 
-  let prev=null;
-  let newLineDrawn=false;
-  items.forEach(m=>{
-    const dayChanged=!prev || chatDayKey(prev.created_at)!==chatDayKey(m.created_at);
-    if(dayChanged) html.push(`<div class="chat-day"><span>${escapeHtml(chatDayLabel(m.created_at))}</span></div>`);
-
-    let newLine=false;
-    if(!newLineDrawn && chat.newSince!==null && m.id && m.id>chat.newSince && m.user_id!==me){
-      html.push('<div class="chat-newline"><span>새 메시지</span></div>');
-      newLineDrawn=newLine=true;
-    }
-
-    const continued=prev && !dayChanged && !newLine
-      && prev.user_id===m.user_id
-      && new Date(m.created_at)-new Date(prev.created_at)<CHAT_GROUP_GAP_MS;
-
-    const cls=["chat-msg"];
-    if(continued) cls.push("cont");
-    if(m.pending) cls.push("pending");
-    if(m.failed) cls.push("failed");
-
-    const name=chatMemberName(m.user_id);
-    const time=chatTimeLabel(m.created_at);
-    const gutter=continued
-      ? `<span class="chat-gutter-time">${time}</span>`
-      : `<span class="chat-avatar" style="background:${chatAvatarColor(m.user_id)}">${escapeHtml(name.slice(0,1))}</span>`;
-    const head=continued ? "" :
-      `<div class="chat-meta"><span class="chat-name">${escapeHtml(name)}</span><span class="chat-time">${time}</span></div>`;
-
-    let status="";
-    if(m.failed){
-      status=`<div class="chat-fail">전송 실패 · `+
-        `<button type="button" data-retry="${escapeHtml(m.client_id)}">다시 보내기</button> · `+
-        `<button type="button" data-discard="${escapeHtml(m.client_id)}">지우기</button></div>`;
-    }
-
-    html.push(`<div class="${cls.join(" ")}">${gutter}<div class="chat-content">${head}`+
-      `<div class="chat-body">${chatBodyHtml(m.body)}</div>${status}</div></div>`);
-    prev=m;
-  });
-
-  box.innerHTML=html.join("");
   if(stickToBottom || wasAtBottom) box.scrollTop=box.scrollHeight;
   else box.scrollTop=prevTop;
+  restoreChatEditFocus(wasEditing);
 }
 
 function autoSizeChatInput(){
@@ -723,12 +1012,57 @@ document.querySelector(".chat-sidebar").addEventListener("click",e=>{
 
 $("chatAddDmBtn").addEventListener("click",()=>toggleChatDmPicker($("chatDmPicker").hidden));
 
-$("chatMessageList").addEventListener("click",e=>{
+/* 본문 목록과 스레드 패널의 메시지 버튼을 한 곳에서 받는다 */
+function onChatListClick(e){
   const retry=e.target.closest("[data-retry]");
   if(retry) return retryChatMessage(retry.dataset.retry);
   const discard=e.target.closest("[data-discard]");
-  if(discard) discardChatMessage(discard.dataset.discard);
+  if(discard) return discardChatMessage(discard.dataset.discard);
+
+  const chip=e.target.closest("[data-react]");
+  if(chip) return toggleChatReaction(Number(chip.dataset.react),chip.dataset.emoji);
+  const thread=e.target.closest("[data-thread]");
+  if(thread) return openChatThread(Number(thread.dataset.thread));
+
+  if(e.target.closest("[data-edit-save]")) return saveChatEdit();
+  if(e.target.closest("[data-edit-cancel]")) return cancelChatEdit();
+
+  const act=e.target.closest("[data-act]");
+  if(!act) return;
+  const id=Number(act.dataset.id);
+  if(act.dataset.act==="react") return openChatReactionPicker(act,id);
+  if(act.dataset.act==="thread") return openChatThread(id);
+  if(act.dataset.act==="edit") return startChatEdit(id);
+  if(act.dataset.act==="delete") return deleteChatMessage(id);
+}
+
+/* 고치는 입력칸: Enter 저장 · Shift+Enter 줄바꿈 · Esc 취소 */
+function onChatListKeydown(e){
+  if(e.target.id!=="chatEditInput") return;
+  if(e.key==="Escape"){
+    e.preventDefault();
+    cancelChatEdit();
+  }else if(e.key==="Enter" && !e.shiftKey && !e.isComposing && e.keyCode!==229){
+    e.preventDefault();
+    saveChatEdit();
+  }
+}
+
+function onChatListInput(e){
+  if(e.target.id==="chatEditInput") chat.editDraft=e.target.value;
+}
+
+["chatMessageList","chatThreadList"].forEach(id=>{
+  $(id).addEventListener("click",onChatListClick);
+  $(id).addEventListener("keydown",onChatListKeydown);
+  $(id).addEventListener("input",onChatListInput);
 });
+
+// 반응 고르기 창은 바깥을 누르거나 스크롤하면 닫는다
+document.addEventListener("mousedown",e=>{
+  if(chatReactionPicker && !e.target.closest(".chat-react-picker,[data-act='react']")) closeChatReactionPicker();
+});
+document.addEventListener("scroll",closeChatReactionPicker,true);
 
 $("chatMessageList").addEventListener("scroll",()=>{
   const box=$("chatMessageList");
@@ -744,6 +1078,15 @@ $("chatInput").addEventListener("keydown",e=>{
 });
 $("chatInput").addEventListener("input",autoSizeChatInput);
 $("chatSendBtn").addEventListener("click",sendChatMessage);
+// ↑ 키로 내 마지막 메시지 고치기 (입력칸이 비어 있을 때만, 슬랙과 같다)
+$("chatInput").addEventListener("keydown",e=>{
+  if(e.key!=="ArrowUp" || e.target.value) return;
+  const me=teamCloud.user?.id;
+  const mine=[...(chat.messages.get(chat.activeId)||[])].reverse().find(m=>m.user_id===me && !m.deleted_at);
+  if(!mine) return;
+  e.preventDefault();
+  startChatEdit(mine.id);
+});
 
 $("chatJumpBtn").addEventListener("click",()=>{
   const box=$("chatMessageList");

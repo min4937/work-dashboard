@@ -653,7 +653,7 @@
     </section>
 
     <section class="page-view" id="chatPage">
-      <div class="page-heading"><div><h2>팀 채팅</h2><p>채널별로 팀원과 대화해. Enter 로 보내고 Shift+Enter 로 줄을 바꿔.</p></div></div>
+      <div class="page-heading"><div><h2>팀 채팅</h2><p>채널별로 팀원과 대화해. Enter 로 보내고 Shift+Enter 로 줄을 바꿔. @이름 으로 부르고, 메시지에 마우스를 올리면 반응·답글·고치기가 나와.</p></div></div>
 
       <div class="shared-lock" id="chatLock">팀 로그인 후 채팅을 쓸 수 있어.</div>
 
@@ -695,6 +695,22 @@
             </div>
             <div class="chat-notice" id="chatNotice"></div>
           </div>
+
+          <aside class="chat-thread" id="chatThread" hidden>
+            <div class="chat-head chat-thread-head">
+              <div>
+                <div class="chat-title">스레드</div>
+                <div class="chat-topic" id="chatThreadChannel"></div>
+              </div>
+              <button type="button" class="chat-add-btn" id="chatThreadClose" title="닫기">×</button>
+            </div>
+            <div class="chat-list" id="chatThreadList"></div>
+            <div class="chat-composer">
+              <textarea id="chatThreadInput" rows="1" maxlength="4000" placeholder="답글 보내기"></textarea>
+              <button type="button" class="btn primary" id="chatThreadSendBtn">보내기</button>
+            </div>
+            <div class="chat-notice" id="chatThreadNotice"></div>
+          </aside>
         </div>
       </section>
     </section>
@@ -1023,6 +1039,8 @@
 <script src="./assets/js/events.js"></script>
 <script src="./assets/js/status.js"></script>
 <script src="./assets/js/chat.js"></script>
+<script src="./assets/js/chat-thread.js"></script>
+<script src="./assets/js/chat-mention.js"></script>
 <script src="./assets/js/cloud.js"></script>
 <script src="./assets/js/auth.js"></script>
 <script src="./assets/js/sync.js"></script>
