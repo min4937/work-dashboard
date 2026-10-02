@@ -6,14 +6,15 @@
      보관된 채널은 목록에 없으니 열어볼 때 chat.archivedView 로 잠깐 끼워 넣고 읽기만 한다.
 
    채널 정보 (머리줄 ⓘ)
-     종류 · 설명 · 멤버. 비공개 채널은 팀원 초대, 기본 채널이 아니면 나가기,
-     만든 사람·팀장은 보관/보관 해제.
+     종류 · 설명 · 멤버. 설명은 멤버 누구나, 이름은 만든 사람·팀장이 바꾼다.
+     비공개 채널은 팀원 초대, 기본 채널이 아니면 나가기, 만든 사람·팀장은 보관/보관 해제.
 
    권한은 모두 서버 RPC 가 다시 확인한다. 화면은 버튼을 숨기기만 한다.
    ============================================================================ */
 
 let chatBrowseItems=[];
 let chatInfoMembers=[];
+let chatInfoEditing=false;
 
 function chatKindLabel(c){
   if(c.archived || c.archived_at) return "보관됨";
@@ -113,6 +114,7 @@ async function openChatInfo(){
   const c=chatChannel(chat.activeId);
   if(!c) return;
   openChatSide("info",c.kind==="dm" ? "대화 정보" : "채널 정보");
+  chatInfoEditing=false;
   const channelId=c.id;
   $("chatSideList").innerHTML='<div class="empty chat-empty">불러오는 중이야.</div>';
 
@@ -135,9 +137,22 @@ function renderChatInfo(){
   const creator=c.created_by ? chatMemberName(c.created_by) : "자동 생성";
 
   const html=[];
-  html.push(`<div class="chat-info-block"><div class="chat-info-name">${escapeHtml(title)}</div>`+
-    `<div class="chat-info-kind">${escapeHtml(chatKindLabel(c))}${c.kind!=="dm" ? ` · 만든 사람 ${escapeHtml(creator)}` : ""}</div>`+
-    `${c.topic ? `<div class="chat-info-topic">${escapeHtml(c.topic)}</div>` : ""}</div>`);
+  const canEdit=c.kind!=="dm" && !archived;
+  if(chatInfoEditing && canEdit){
+    // 이름은 만든 사람·팀장만 (#일반 은 아무도) 바꾼다. 설명은 멤버 누구나.
+    const nameField=canManageChatChannel(c)
+      ? `<label>채널 이름<input id="chatInfoNameInput" type="text" maxlength="30" value="${escapeHtml(c.name)}"></label>`
+      : "";
+    html.push(`<div class="chat-info-block chat-info-edit">${nameField}`+
+      `<label>설명<textarea id="chatInfoTopicInput" rows="3" maxlength="200" placeholder="이 채널에서 무엇을 이야기하는지">${escapeHtml(c.topic||"")}</textarea></label>`+
+      `<div class="chat-channel-form-actions"><button type="button" class="mini-btn" data-info-edit-cancel>취소</button>`+
+      `<button type="button" class="btn primary" data-info-edit-save>저장</button></div></div>`);
+  }else{
+    html.push(`<div class="chat-info-block"><div class="chat-info-name">${escapeHtml(title)}</div>`+
+      `<div class="chat-info-kind">${escapeHtml(chatKindLabel(c))}${c.kind!=="dm" ? ` · 만든 사람 ${escapeHtml(creator)}` : ""}</div>`+
+      `${c.topic ? `<div class="chat-info-topic">${escapeHtml(c.topic)}</div>` : ""}`+
+      `${canEdit ? `<button type="button" class="chat-thread-link" data-info-edit>✏️ ${canManageChatChannel(c) ? "이름·설명 바꾸기" : "설명 바꾸기"}</button>` : ""}</div>`);
+  }
 
   html.push(`<div class="chat-browse-section">멤버 ${members.length}명</div>`);
   html.push(members.map(m=>
@@ -178,6 +193,38 @@ function renderChatInfo(){
   }
 
   $("chatSideList").innerHTML=html.join("");
+}
+
+async function saveChatInfoEdit(){
+  const c=chatChannel(chat.activeId);
+  if(!c) return;
+  const args={p_channel:c.id};
+  const nameInput=$("chatInfoNameInput");
+  const name=nameInput?.value.trim();
+  const topic=$("chatInfoTopicInput").value.trim();
+  if(nameInput && name!==c.name){
+    if(!name){
+      setChatNotice("채널 이름을 비울 수는 없어.",true);
+      return;
+    }
+    args.p_name=name;
+  }
+  if(topic!==(c.topic||"")) args.p_topic=topic;
+  if(!("p_name" in args) && !("p_topic" in args)){
+    chatInfoEditing=false;
+    renderChatInfo();
+    return;
+  }
+
+  const {error}=await teamCloud.client.rpc("update_chat_channel",args);
+  if(error){
+    setChatNotice(error.message||"채널 정보를 바꾸지 못했어.",true);
+    return;
+  }
+  chatInfoEditing=false;
+  await refreshChatChannels();   // 머리줄 · 사이드바 이름이 바뀐다
+  renderChatInfo();
+  setChatNotice("채널 정보를 바꿨어.");
 }
 
 async function inviteChatMembers(){
@@ -262,6 +309,17 @@ $("chatSideList").addEventListener("click",e=>{
     return;
   }
   if(isChatSideOpen("info")){
+    if(e.target.closest("[data-info-edit]")){
+      chatInfoEditing=true;
+      renderChatInfo();
+      ($("chatInfoNameInput")||$("chatInfoTopicInput"))?.focus();
+      return;
+    }
+    if(e.target.closest("[data-info-edit-cancel]")){
+      chatInfoEditing=false;
+      return renderChatInfo();
+    }
+    if(e.target.closest("[data-info-edit-save]")) return saveChatInfoEdit();
     if(e.target.closest("[data-info-invite]")) return inviteChatMembers();
     if(e.target.closest("[data-info-leave]")) return leaveChatChannel();
     if(e.target.closest("[data-info-archive]")) return archiveChatChannel(true);

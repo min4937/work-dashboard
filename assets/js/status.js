@@ -36,6 +36,11 @@ function renderStatusBar() {
   const notice = $("statusBarNotice");
   if (!wrap) return;
 
+  // 채팅 사이드바 · 채널 정보의 상태 점도 같은 데이터를 쓰므로 함께 갱신한다.
+  // 배포 직후 브라우저 캐시로 chat.js 만 예전 것이면 함수가 없을 수 있어 확인하고 부른다
+  // (여기서 오류가 나면 근무 상태바 전체가 멈춘다).
+  if (typeof refreshChatPresence === "function") refreshChatPresence();
+
   if (!teamCloud.user || !teamCloud.teamId) {
     wrap.innerHTML = "";
     if (controls) controls.style.display = "none";

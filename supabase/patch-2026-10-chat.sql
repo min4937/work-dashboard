@@ -316,6 +316,13 @@ create policy chat_files_insert on storage.objects
   for insert to authenticated
   with check (bucket_id = 'chat-files' and public.chat_can_write_file(name));
 
+-- 지우기는 올린 사람만. 보내지 않고 뺀 첨부와, 지운 메시지의 첨부를 화면이 지운다.
+-- (Storage 파일은 SQL 로 직접 지울 수 없어 Storage API 를 거쳐야 한다)
+drop policy if exists chat_files_delete on storage.objects;
+create policy chat_files_delete on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'chat-files' and owner_id = (select auth.uid())::text);
+
 
 -- 4. Broadcast 트리거 ---------------------------------------------------------
 
@@ -1093,5 +1100,51 @@ begin
   values (p_message, v_channel, auth.uid())
   on conflict do nothing;
   return true;
+end;
+$$;
+
+-- 채널 이름 · 설명 바꾸기
+--   이름 : 만든 사람 또는 팀장 (기본 채널 #일반 은 바꿀 수 없다)
+--   설명 : 그 채널 멤버 누구나 (슬랙과 같다)
+-- null 로 넘긴 쪽은 그대로 둔다.
+create or replace function public.update_chat_channel(
+  p_channel uuid,
+  p_name    text default null,
+  p_topic   text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_kind text;
+  v_name text;
+begin
+  select c.kind into v_kind from public.chat_channels c where c.id = p_channel;
+  if v_kind is null or v_kind = 'dm' or not public.chat_can_write(p_channel) then
+    raise exception '이 채널은 고칠 수 없어.';
+  end if;
+
+  if p_name is not null then
+    if not public.chat_can_manage(p_channel) then
+      raise exception '채널 이름은 만든 사람이나 팀장만 바꿀 수 있어.';
+    end if;
+    v_name := btrim(regexp_replace(p_name, '^#+', ''));
+    if char_length(v_name) < 1 or char_length(v_name) > 30 then
+      raise exception '채널 이름은 1~30자로 정해줘.';
+    end if;
+    begin
+      update public.chat_channels set name = v_name where id = p_channel;
+    exception when unique_violation then
+      raise exception '이미 있는 채널 이름이야.';
+    end;
+  end if;
+
+  if p_topic is not null then
+    update public.chat_channels set topic = left(btrim(p_topic), 200) where id = p_channel;
+  end if;
+
+  perform public.chat_notify_team(p_channel);
 end;
 $$;

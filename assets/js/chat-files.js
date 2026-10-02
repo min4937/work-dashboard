@@ -5,6 +5,9 @@
    Storage 'chat-files' 버킷에 올린다. 보낼 때는 올라간 파일의 경로·이름만
    메시지(attachments)에 실린다. 파일 자체는 비공개라 볼 때마다 서명 URL 을 받는다.
 
+   정리  보내지 않고 뺀 첨부(× · 채널 이동 · 로그아웃)와 지운 메시지의 첨부는
+         Storage 에서도 지운다. 지우기 정책은 '올린 사람만' 이다.
+
    경로  <팀 id>/<채널 id>/<무작위 id>.<확장자>
          → Storage RLS 가 이 경로로 '그 채널을 볼 수 있는 사람'만 통과시킨다.
          원래 파일 이름은 경로에 넣지 않는다 (한글·특수문자 키 오류를 피하려고).
@@ -80,9 +83,11 @@ async function uploadChatDraft(target,draft,file){
   if(error){
     console.error(error);
     draft.status="error";
-    setChatComposerNotice(target,`${draft.name} 을(를) 올리지 못했어.`,true);
+    if(!draft.discarded) setChatComposerNotice(target,`${draft.name} 을(를) 올리지 못했어.`,true);
   }else{
     draft.status="done";
+    // 올라가는 사이에 × 를 눌렀거나 채널을 옮겼으면 바로 지운다
+    if(draft.discarded) removeChatFiles([draft.path]);
   }
   renderChatDrafts(target);
 }
@@ -104,12 +109,29 @@ function takeChatDrafts(target){
   return files;
 }
 
+/* Storage 에서 지운다. 실패해도(이미 없거나 권한이 없거나) 화면 동작에는 영향이 없다. */
+async function removeChatFiles(paths){
+  const list=paths.filter(Boolean);
+  if(!list.length || !teamCloud.client) return;
+  const {error}=await teamCloud.client.storage.from(CHAT_FILE_BUCKET).remove(list);
+  if(error) console.error(error);
+}
+
+/* 보내지 않고 버리는 초안. 다 올라간 것만 지운다
+   (올리는 중인 것은 끝난 뒤 uploadChatDraft 가 버려졌는지 보고 지운다). */
+function discardChatDrafts(drafts){
+  drafts.forEach(d=>{ d.discarded=true; });
+  removeChatFiles(drafts.filter(d=>d.status==="done").map(d=>d.path));
+}
+
 function clearChatDrafts(target){
+  discardChatDrafts(chatFiles.drafts[target]);
   chatFiles.drafts[target]=[];
   renderChatDrafts(target);
 }
 
 function removeChatDraft(target,key){
+  discardChatDrafts(chatFiles.drafts[target].filter(d=>d.key===key));
   chatFiles.drafts[target]=chatFiles.drafts[target].filter(d=>d.key!==key);
   renderChatDrafts(target);
 }

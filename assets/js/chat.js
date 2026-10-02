@@ -400,7 +400,10 @@ function retryChatMessage(clientId){
 }
 
 function discardChatMessage(clientId){
+  const item=chat.pending.get(clientId);
   chat.pending.delete(clientId);
+  // 못 보낸 메시지에 붙어 있던 첨부는 이미 올라가 있으니 함께 지운다
+  removeChatFiles((item?.attachments||[]).map(f=>f.path));
   rerenderChatViews();
 }
 
@@ -454,7 +457,8 @@ async function saveChatEdit(){
 }
 
 async function deleteChatMessage(id){
-  if(!confirm("이 메시지를 삭제할까? 되돌릴 수 없어.")) return;
+  if(!confirm("이 메시지를 삭제할까? 첨부 파일도 함께 지워지고 되돌릴 수 없어.")) return;
+  const files=(findChatMessage(id)?.attachments||[]).map(f=>f.path);
   const {data,error}=await teamCloud.client.rpc("delete_chat_message",{p_id:id});
   if(error){
     setChatNotice(error.message||"메시지를 지우지 못했어.",true);
@@ -462,6 +466,7 @@ async function deleteChatMessage(id){
   }
   chat.reactions.delete(id);
   onChatMessage(data);
+  removeChatFiles(files);   // 메시지는 이미 지워졌으니 파일 정리가 실패해도 화면에는 영향이 없다
 }
 
 
@@ -723,6 +728,14 @@ function openChatChannel(id){
    (구독은 해둔다. 첫 메시지가 오는 순간 목록에 나타난다) */
 function isChatDmVisible(c){
   return c.last_message_id>0 || c.created_by===teamCloud.user?.id || c.id===chat.activeId;
+}
+
+/* 팀원 근무 상태가 바뀌면 status.js 가 부른다 */
+function refreshChatPresence(){
+  if(!isChatPageActive() || !chat.teamId) return;
+  renderChatSidebar();
+  if(!$("chatDmPicker").hidden) toggleChatDmPicker(true);
+  if(isChatSideOpen("info")) renderChatInfo();
 }
 
 function chatChannelLabel(c){
