@@ -653,13 +653,14 @@
     </section>
 
     <section class="page-view" id="chatPage">
-      <div class="page-heading"><div><h2>팀 채팅</h2><p>채널별로 팀원과 대화해. Enter 로 보내고 Shift+Enter 로 줄을 바꿔. @이름 으로 부르고, 메시지에 마우스를 올리면 반응·답글·고치기가 나와.</p></div></div>
+      <div class="page-heading"><div><h2>팀 채팅</h2><p>채널별로 팀원과 대화해. Enter 로 보내고 Shift+Enter 로 줄을 바꿔. @이름 으로 부르고, 메시지에 마우스를 올리면 반응·답글·고치기가 나와. 파일은 📎 · 끌어다 놓기 · 붙여넣기로 첨부해.</p></div></div>
 
       <div class="shared-lock" id="chatLock">팀 로그인 후 채팅을 쓸 수 있어.</div>
 
       <section class="panel chat-panel" id="chatLayout" style="display:none">
         <div class="chat-layout">
           <aside class="chat-sidebar">
+            <input type="search" class="chat-search-input" id="chatSearchInput" maxlength="100" placeholder="🔍 메시지 검색 (Enter)">
             <div class="chat-sidebar-head">
               <span>채널</span>
               <button type="button" class="chat-add-btn" id="chatAddChannelBtn" title="채널 추가">+</button>
@@ -683,16 +684,23 @@
           </aside>
 
           <div class="chat-main">
-            <div class="chat-head">
-              <div class="chat-title" id="chatChannelTitle"></div>
-              <div class="chat-topic" id="chatChannelTopic"></div>
+            <div class="chat-head chat-main-head">
+              <div>
+                <div class="chat-title" id="chatChannelTitle"></div>
+                <div class="chat-topic" id="chatChannelTopic"></div>
+              </div>
+              <button type="button" class="chat-notify-btn" id="chatNotifyBtn">🔕 알림 꺼짐</button>
             </div>
             <div class="chat-list" id="chatMessageList"></div>
             <button type="button" class="chat-jump" id="chatJumpBtn" hidden>새 메시지 ↓</button>
+            <div class="chat-drafts" id="chatDrafts" hidden></div>
             <div class="chat-composer">
+              <button type="button" class="chat-attach-btn" id="chatAttachBtn" title="파일 첨부 (끌어다 놓거나 붙여넣어도 돼)">📎</button>
+              <input type="file" id="chatFileInput" multiple hidden>
               <textarea id="chatInput" rows="1" maxlength="4000"></textarea>
               <button type="button" class="btn primary" id="chatSendBtn">보내기</button>
             </div>
+            <div class="chat-typing" id="chatTyping"></div>
             <div class="chat-notice" id="chatNotice"></div>
           </div>
 
@@ -705,11 +713,22 @@
               <button type="button" class="chat-add-btn" id="chatThreadClose" title="닫기">×</button>
             </div>
             <div class="chat-list" id="chatThreadList"></div>
+            <div class="chat-drafts" id="chatThreadDrafts" hidden></div>
             <div class="chat-composer">
+              <button type="button" class="chat-attach-btn" id="chatThreadAttachBtn" title="파일 첨부">📎</button>
+              <input type="file" id="chatThreadFileInput" multiple hidden>
               <textarea id="chatThreadInput" rows="1" maxlength="4000" placeholder="답글 보내기"></textarea>
               <button type="button" class="btn primary" id="chatThreadSendBtn">보내기</button>
             </div>
             <div class="chat-notice" id="chatThreadNotice"></div>
+          </aside>
+
+          <aside class="chat-thread chat-search" id="chatSearch" hidden>
+            <div class="chat-head chat-thread-head">
+              <div class="chat-title" id="chatSearchTitle">검색</div>
+              <button type="button" class="chat-add-btn" id="chatSearchClose" title="닫기">×</button>
+            </div>
+            <div class="chat-list" id="chatSearchList"></div>
           </aside>
         </div>
       </section>
@@ -1041,6 +1060,10 @@
 <script src="./assets/js/chat.js"></script>
 <script src="./assets/js/chat-thread.js"></script>
 <script src="./assets/js/chat-mention.js"></script>
+<script src="./assets/js/chat-files.js"></script>
+<script src="./assets/js/chat-typing.js"></script>
+<script src="./assets/js/chat-notify.js"></script>
+<script src="./assets/js/chat-search.js"></script>
 <script src="./assets/js/cloud.js"></script>
 <script src="./assets/js/auth.js"></script>
 <script src="./assets/js/sync.js"></script>

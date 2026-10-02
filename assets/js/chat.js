@@ -1,6 +1,9 @@
 /* ============================================================================
    팀 채팅 (채널 · 1:1 대화 · 메시지 · 수정/삭제 · 리액션 · 안 읽음)
-   스레드 패널은 chat-thread.js, @멘션 자동완성은 chat-mention.js
+   나머지는 기능별 파일로 나눴다.
+     chat-thread.js   스레드 패널          chat-mention.js  @멘션 자동완성
+     chat-files.js    파일 첨부            chat-typing.js   입력 중 표시
+     chat-notify.js   데스크톱 알림        chat-search.js   검색 · 메시지로 이동
 
    1:1 대화도 kind='dm' 인 채널일 뿐이라 보내기·받기·읽음은 채널과 똑같이 돈다.
    다른 점은 멤버가 두 사람뿐이고, 이름 대신 상대 이름을 보여준다는 것.
@@ -80,7 +83,11 @@ function stopChat(){
   clearTimeout(chat.readTimer);
   clearTimeout(chat.refreshTimer);
   closeChatThread();
+  closeChatSearch();
   closeChatReactionPicker();
+  clearChatDrafts("main");
+  clearChatDrafts("thread");
+  resetChatTyping();
   chat=emptyChatState();
   renderChatBadges();
   if(isChatPageActive()) renderChatPage();
@@ -149,6 +156,7 @@ function syncChatSubscriptions(){
       .channel(`chat:${id}`,{config:{private:true}})
       .on("broadcast",{event:"message"},({payload})=>onChatMessage(payload))
       .on("broadcast",{event:"reaction"},({payload})=>onChatReaction(payload))
+      .on("broadcast",{event:"typing"},({payload})=>onChatTyping(id,payload))
       .subscribe(status=>{
         if(status!=="SUBSCRIBED") return;
         // 첫 구독은 방금 목록을 읽었으니 넘어간다. 그 뒤의 SUBSCRIBED 는 끊겼다 다시 붙은 것이다.
@@ -181,6 +189,10 @@ function onChatMessage(raw){
   if(!raw || !raw.id) return;
   const row=normalizeChatRow(raw);
   chat.pending.delete(row.client_id);
+  if(row.op!=="update"){
+    clearChatTyping(row.channel_id,row.user_id);
+    notifyChatMessage(row);
+  }
 
   // 스레드 답글은 채널 목록·안 읽음과 무관하다. 열려 있는 스레드만 갱신한다.
   if(row.parent_id){
@@ -324,21 +336,26 @@ function newClientId(){
 async function sendChatMessage(){
   const input=$("chatInput");
   const body=input.value.trim();
-  if(!body || !chat.activeId) return;
+  if(!chat.activeId) return;
+  if(!body && !chatFiles.drafts.main.length) return;
   if(body.length>4000){
     setChatNotice("메시지는 4000자까지 보낼 수 있어.",true);
     return;
   }
+  const attachments=takeChatDrafts("main");
+  if(!attachments) return;   // 아직 올리는 중이거나 실패한 파일이 있다
 
   const item={
     client_id:newClientId(),
     channel_id:chat.activeId,
     user_id:teamCloud.user.id,
     body,
+    attachments,
     created_at:new Date().toISOString(),
     failed:false
   };
   chat.pending.set(item.client_id,item);
+  resetChatTypingSent(item.channel_id);
   input.value="";
   autoSizeChatInput();
   setChatNotice("");
@@ -350,7 +367,9 @@ async function sendChatMessage(){
 async function deliverChatMessage(item){
   item.failed=false;
   const args={p_channel:item.channel_id,p_client_id:item.client_id,p_body:item.body};
-  if(item.parent_id) args.p_parent=item.parent_id;   // 답글일 때만 넘긴다
+  // 답글·첨부일 때만 넘긴다 (안 쓰는 인자를 빼두면 SQL 패치 전 함수와도 맞는다)
+  if(item.parent_id) args.p_parent=item.parent_id;
+  if(item.attachments?.length) args.p_attachments=item.attachments;
   const {data,error}=await teamCloud.client.rpc("send_chat_message",args);
   if(error){
     console.error(error);
@@ -628,6 +647,8 @@ async function renderChatPage({stickToBottom=false}={}){
 
   // 처음 열 때만 맨 아래로 내린다. 목록을 다시 읽을 때는 보던 자리를 지킨다.
   renderChatMessages({stickToBottom:fresh || stickToBottom});
+  renderChatTyping();
+  renderChatNotifyButton();
   if(isChatListAtBottom()) markChatReadSoon();
 }
 
@@ -638,6 +659,7 @@ function openChatChannel(id){
   chat.activeId=id;
   chat.editingId=null;
   closeChatThread();
+  clearChatDrafts("main");   // 올린 경로가 이전 채널 폴더라 다른 채널로 보낼 수 없다
   // 안 읽은 게 있으면 그 앞에 '새 메시지' 줄을 긋는다
   chat.newSince=channel.unread_count>0 ? channel.last_read_id : null;
   showChatJump(false);
@@ -824,7 +846,9 @@ function chatMessageHtml(m,{continued=false,inThread=false}={}){
       `<button type="button" class="mini-btn" data-edit-cancel>취소</button>`+
       `<button type="button" class="btn primary" data-edit-save>저장</button></div></div>`;
   }else{
-    body=`<div class="chat-body">${chatBodyHtml(m.body)}${m.edited_at?'<span class="chat-edited">(수정됨)</span>':""}</div>`;
+    body=m.body || m.edited_at
+      ? `<div class="chat-body">${chatBodyHtml(m.body)}${m.edited_at?'<span class="chat-edited">(수정됨)</span>':""}</div>`
+      : "";
   }
 
   let status="";
@@ -834,13 +858,14 @@ function chatMessageHtml(m,{continued=false,inThread=false}={}){
       `<button type="button" data-discard="${escapeHtml(m.client_id)}">지우기</button></div>`;
   }
 
+  const files=chatAttachmentsHtml(m);
   const reactions=m.id && !m.deleted_at ? chatReactionsHtml(m.id) : "";
   const thread=!inThread && !m.parent_id && m.reply_count>0
     ? `<button type="button" class="chat-thread-link" data-thread="${m.id}">💬 답글 ${m.reply_count}개`+
       `${m.last_reply_at?`<span> · 마지막 ${chatTimeLabel(m.last_reply_at)}</span>`:""}</button>`
     : "";
 
-  return `<div class="${cls.join(" ")}">${gutter}<div class="chat-content">${head}${body}${status}${reactions}${thread}</div>`+
+  return `<div class="${cls.join(" ")}" data-mid="${m.id||""}">${gutter}<div class="chat-content">${head}${body}${files}${status}${reactions}${thread}</div>`+
     `${editable ? "" : chatActionsHtml(m,inThread)}</div>`;
 }
 

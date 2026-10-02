@@ -1,5 +1,6 @@
 -- ----------------------------------------------------------------------------
--- 2026-10 패치 · 팀 채팅 (채널 · 1:1 대화 · 스레드 · 리액션 · 수정/삭제 · 안 읽음)
+-- 2026-10 패치 · 팀 채팅
+--   채널 · 1:1 대화 · 스레드 · 리액션 · 수정/삭제 · 안 읽음 · 입력 중 표시 · 첨부 · 검색
 --
 -- 메시지는 chat_messages 표에 저장하고, 실시간 전달은 DB 트리거가 비공개
 -- Broadcast 채널로 쏜다 (Broadcast from Database). 화면은 이 신호를 받아
@@ -66,11 +67,19 @@ create table if not exists public.chat_messages (
   channel_id uuid not null references public.chat_channels(id) on delete cascade,
   user_id    uuid references auth.users(id) on delete set null,
   parent_id  bigint references public.chat_messages(id) on delete cascade,
-  body       text not null check (char_length(body) between 1 and 4000),
+  body       text not null check (char_length(body) <= 4000),
   created_at timestamptz not null default now(),
   edited_at  timestamptz,
   deleted_at timestamptz
 );
+
+-- 첨부만 보내는 메시지는 본문이 비어 있을 수 있다. 예전 '1자 이상' 제약을 바꾼다.
+-- (본문과 첨부 중 하나는 있어야 한다는 규칙은 send_chat_message 가 지킨다)
+alter table public.chat_messages drop constraint if exists chat_messages_body_check;
+alter table public.chat_messages add constraint chat_messages_body_check check (char_length(body) <= 4000);
+
+-- 첨부 파일 목록 [{path, name, size, type}]. 파일 자체는 Storage 'chat-files' 버킷에 있다.
+alter table public.chat_messages add column if not exists attachments jsonb not null default '[]'::jsonb;
 
 -- 스레드 원글에 답글 수와 마지막 답글 시각을 들고 있게 한다 (목록의 '답글 3개' 표시용)
 alter table public.chat_messages add column if not exists reply_count   integer not null default 0;
@@ -136,6 +145,28 @@ end;
 $$;
 
 
+-- 첨부 파일 경로 '<팀 id>/<채널 id>/<파일>' 로 판정한다.
+-- 내 팀 폴더이고, 그 채널을 볼 수 있는 사람만 올리고 내려받는다.
+create or replace function public.chat_can_access_file(p_name text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_parts text[] := storage.foldername(p_name);
+begin
+  if coalesce(array_length(v_parts, 1), 0) <> 2
+     or v_parts[1] is distinct from public.current_team_id()::text
+     or v_parts[2] !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+  return public.chat_can_access(v_parts[2]::uuid);
+end;
+$$;
+
+
 -- 3. RLS ----------------------------------------------------------------------
 
 alter table public.chat_channels enable row level security;
@@ -180,6 +211,31 @@ create policy chat_realtime_select on realtime.messages
       or (select realtime.topic()) = 'chat-team:' || public.current_team_id()::text
     )
   );
+
+
+-- 화면이 직접 보내는 Broadcast(입력 중 표시) 권한. 그 채널을 볼 수 있는 사람만 보낸다.
+drop policy if exists chat_realtime_insert on realtime.messages;
+create policy chat_realtime_insert on realtime.messages
+  for insert to authenticated
+  with check (
+    realtime.messages.extension = 'broadcast'
+    and public.chat_can_access_topic((select realtime.topic()))
+  );
+
+-- 첨부 파일 버킷. 비공개이고 한 파일 20MB 까지.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('chat-files', 'chat-files', false, 20971520)
+on conflict (id) do nothing;
+
+drop policy if exists chat_files_select on storage.objects;
+create policy chat_files_select on storage.objects
+  for select to authenticated
+  using (bucket_id = 'chat-files' and public.chat_can_access_file(name));
+
+drop policy if exists chat_files_insert on storage.objects;
+create policy chat_files_insert on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'chat-files' and public.chat_can_access_file(name));
 
 
 -- 4. Broadcast 트리거 ---------------------------------------------------------
@@ -435,13 +491,16 @@ $$;
 -- (네트워크가 끊겨 재전송해도 두 번 올라가지 않는다).
 -- p_parent 를 주면 그 메시지의 스레드 답글이 되고, 원글의 답글 수가 올라간다.
 -- 내가 보낸 채널 메시지까지는 읽은 것으로 친다.
--- 인자가 늘었으므로 예전 3개짜리를 지워야 같은 이름 함수가 둘 생기지 않는다.
+-- p_attachments 는 이미 Storage 에 올린 파일 목록. 경로가 이 채널 폴더 안이어야 한다.
+-- 인자가 늘 때마다 예전 것을 지워야 같은 이름 함수가 여럿 생기지 않는다.
 drop function if exists public.send_chat_message(uuid, uuid, text);
+drop function if exists public.send_chat_message(uuid, uuid, text, bigint);
 create or replace function public.send_chat_message(
-  p_channel   uuid,
-  p_client_id uuid,
-  p_body      text,
-  p_parent    bigint default null
+  p_channel     uuid,
+  p_client_id   uuid,
+  p_body        text,
+  p_parent      bigint default null,
+  p_attachments jsonb  default '[]'::jsonb
 )
 returns public.chat_messages
 language plpgsql
@@ -449,14 +508,35 @@ security definer
 set search_path = public
 as $$
 declare
-  v_uid  uuid := auth.uid();
-  v_body text := regexp_replace(coalesce(p_body, ''), '^\s+|\s+$', '', 'g');
-  v_row  public.chat_messages;
+  v_uid    uuid := auth.uid();
+  v_body   text := regexp_replace(coalesce(p_body, ''), '^\s+|\s+$', '', 'g');
+  v_prefix text := public.current_team_id()::text || '/' || p_channel::text || '/';
+  v_files  jsonb;
+  v_ok     boolean;
+  v_row    public.chat_messages;
 begin
   if v_uid is null or not public.chat_can_access(p_channel) then
     raise exception '이 채널에 메시지를 보낼 수 없어.';
   end if;
-  if char_length(v_body) < 1 then
+  if jsonb_typeof(coalesce(p_attachments, '[]'::jsonb)) <> 'array'
+     or jsonb_array_length(coalesce(p_attachments, '[]'::jsonb)) > 10 then
+    raise exception '첨부는 한 번에 10개까지야.';
+  end if;
+
+  -- 필요한 칸만 남기고, 경로가 이 채널 폴더 밖이면 거절한다
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'path', a->>'path',
+           'name', left(coalesce(nullif(a->>'name', ''), '파일'), 200),
+           'size', coalesce((a->>'size')::bigint, 0),
+           'type', left(coalesce(a->>'type', ''), 100))), '[]'::jsonb),
+         coalesce(bool_and(a->>'path' like v_prefix || '%' and a->>'path' not like '%..%'), true)
+  into v_files, v_ok
+  from jsonb_array_elements(coalesce(p_attachments, '[]'::jsonb)) a;
+
+  if not v_ok then
+    raise exception '첨부 파일 경로가 올바르지 않아.';
+  end if;
+  if char_length(v_body) < 1 and jsonb_array_length(v_files) = 0 then
     raise exception '빈 메시지는 보낼 수 없어.';
   end if;
   if char_length(v_body) > 4000 then
@@ -472,8 +552,8 @@ begin
     end if;
   end if;
 
-  insert into public.chat_messages (client_id, channel_id, user_id, parent_id, body)
-  values (p_client_id, p_channel, v_uid, p_parent, v_body)
+  insert into public.chat_messages (client_id, channel_id, user_id, parent_id, body, attachments)
+  values (p_client_id, p_channel, v_uid, p_parent, v_body, v_files)
   on conflict (client_id) do nothing
   returning * into v_row;
 
@@ -518,7 +598,8 @@ begin
      or v_row.deleted_at is not null or not public.chat_can_access(v_row.channel_id) then
     raise exception '이 메시지는 고칠 수 없어.';
   end if;
-  if char_length(v_body) < 1 or char_length(v_body) > 4000 then
+  if char_length(v_body) > 4000
+     or (char_length(v_body) < 1 and jsonb_array_length(v_row.attachments) = 0) then
     raise exception '메시지는 1~4000자로 써줘.';
   end if;
   if v_body = v_row.body then
@@ -557,7 +638,7 @@ begin
   delete from public.chat_reactions where message_id = p_id;
 
   update public.chat_messages
-  set body = '(삭제됨)', deleted_at = now()
+  set body = '(삭제됨)', attachments = '[]'::jsonb, deleted_at = now()
   where id = p_id
   returning * into v_row;
 
@@ -628,5 +709,50 @@ begin
   values (p_channel, v_uid, least(coalesce(p_last_id, 0), v_max))
   on conflict (channel_id, user_id)
   do update set last_read_id = greatest(public.chat_members.last_read_id, excluded.last_read_id);
+end;
+$$;
+
+-- 메시지 검색. 내가 볼 수 있는 채널·1:1 대화에서 본문이나 첨부 이름에 검색어가 든 것.
+-- 한국어 사전이 없어 전문 검색 대신 부분 일치(ILIKE)를 쓴다. 팀 규모에서는 이걸로 충분하다.
+create or replace function public.search_chat_messages(p_query text, p_limit integer default 50)
+returns table (
+  id         bigint,
+  channel_id uuid,
+  parent_id  bigint,
+  user_id    uuid,
+  body       text,
+  created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+#variable_conflict use_column
+declare
+  v_q text := btrim(coalesce(p_query, ''));
+begin
+  if auth.uid() is null or char_length(v_q) < 2 then
+    return;
+  end if;
+  -- % _ \ 를 글자 그대로 찾게 한다
+  v_q := replace(replace(replace(v_q, '\', '\\'), '%', '\%'), '_', '\_');
+
+  return query
+  select m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at
+  from public.chat_messages m
+  join public.chat_channels c on c.id = m.channel_id
+  where c.team_id = public.current_team_id()
+    and public.chat_can_access(c.id)
+    and m.deleted_at is null
+    and (
+      m.body ilike '%' || v_q || '%'
+      or exists (
+        select 1 from jsonb_array_elements(m.attachments) a
+        where a->>'name' ilike '%' || v_q || '%'
+      )
+    )
+  order by m.id desc
+  limit least(greatest(coalesce(p_limit, 50), 1), 100);
 end;
 $$;

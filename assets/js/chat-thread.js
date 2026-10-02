@@ -32,9 +32,12 @@ async function openChatThread(parentId){
   const parent=chat.messages.get(chat.activeId)?.find(m=>m.id===parentId);
   if(!parent) return;
 
+  // 오른쪽 자리는 스레드와 검색이 나눠 쓴다
+  if(isChatSearchOpen()) closeChatSearch();
+  if(chatThread.parentId!==parentId) clearChatDrafts("thread");
   chatThread={parentId,channelId:parent.channel_id,replies:[],loading:true};
   $("chatThread").hidden=false;
-  document.querySelector(".chat-layout")?.classList.add("thread-open");
+  document.querySelector(".chat-layout")?.classList.add("side-open");
   setChatThreadNotice("");
   renderChatThread({stickToBottom:true});
 
@@ -62,9 +65,10 @@ async function openChatThread(parentId){
 
 function closeChatThread(){
   chatThread=emptyChatThread();
+  clearChatDrafts("thread");
   const panel=$("chatThread");
   if(panel) panel.hidden=true;
-  document.querySelector(".chat-layout")?.classList.remove("thread-open");
+  if(!isChatSearchOpen()) document.querySelector(".chat-layout")?.classList.remove("side-open");
 }
 
 /* id 순서로 끼워 넣고, 이미 있는 답글은 덮어쓴다(수정·삭제). */
@@ -147,11 +151,14 @@ async function sendChatReply(){
   const input=$("chatThreadInput");
   const body=input.value.trim();
   const parent=chatThreadParent();
-  if(!body || !parent || parent.deleted_at) return;
+  if(!parent || parent.deleted_at) return;
+  if(!body && !chatFiles.drafts.thread.length) return;
   if(body.length>4000){
     setChatThreadNotice("메시지는 4000자까지 보낼 수 있어.",true);
     return;
   }
+  const attachments=takeChatDrafts("thread");
+  if(!attachments) return;
 
   const item={
     client_id:newClientId(),
@@ -159,6 +166,7 @@ async function sendChatReply(){
     parent_id:parent.id,
     user_id:teamCloud.user.id,
     body,
+    attachments,
     created_at:new Date().toISOString(),
     failed:false
   };
