@@ -1,6 +1,7 @@
 -- ----------------------------------------------------------------------------
 -- 2026-10 패치 · 팀 채팅
---   채널 · 1:1 대화 · 스레드 · 리액션 · 수정/삭제 · 안 읽음 · 입력 중 표시 · 첨부 · 검색
+--   채널(공개·비공개) · 1:1 대화 · 스레드 · 리액션 · 수정/삭제 · 고정 · 안 읽음
+--   입력 중 표시 · 첨부 · 검색 · 채널 나가기/보관
 --
 -- 메시지는 chat_messages 표에 저장하고, 실시간 전달은 DB 트리거가 비공개
 -- Broadcast 채널로 쏜다 (Broadcast from Database). 화면은 이 신호를 받아
@@ -19,7 +20,8 @@
 
 -- 1. 표 -----------------------------------------------------------------------
 
--- 채널. public = 팀 채널, dm = 1:1 대화 (private 는 앞으로 쓸 자리)
+-- 채널. public = 팀 공개 채널, private = 초대받은 사람만, dm = 1:1 대화
+-- archived_at 이 찍히면 보관된 채널: 목록에서 빠지고 읽기만 된다.
 create table if not exists public.chat_channels (
   id          uuid primary key default gen_random_uuid(),
   team_id     uuid not null references public.teams(id) on delete cascade,
@@ -57,6 +59,10 @@ create table if not exists public.chat_members (
 
 create index if not exists chat_members_user_idx on public.chat_members (user_id);
 
+-- 공개 채널에서 '나가기' 를 누르면 행을 지우지 않고 숨긴다.
+-- (지우면 chat_bootstrap 이 공개 채널이라고 다시 넣어버린다)
+alter table public.chat_members add column if not exists hidden boolean not null default false;
+
 -- 메시지. 순서는 서버가 매기는 id 하나로 정한다 (클라이언트 시계를 믿지 않는다).
 -- client_id 는 보낸 쪽이 만든 값으로, 재전송해도 한 번만 들어가게 하는 열쇠다.
 -- parent_id 가 있으면 스레드 답글이다 (한 단계만. 답글에 답글은 없다).
@@ -89,6 +95,16 @@ create index if not exists chat_messages_channel_idx on public.chat_messages (ch
 create index if not exists chat_messages_parent_idx  on public.chat_messages (parent_id, id)
   where parent_id is not null;
 
+-- 고정 메시지. 채널마다 여러 개. 누가 언제 고정했는지 남긴다.
+create table if not exists public.chat_pins (
+  message_id bigint primary key references public.chat_messages(id) on delete cascade,
+  channel_id uuid not null references public.chat_channels(id) on delete cascade,
+  pinned_by  uuid references auth.users(id) on delete set null,
+  pinned_at  timestamptz not null default now()
+);
+
+create index if not exists chat_pins_channel_idx on public.chat_pins (channel_id, pinned_at);
+
 -- 리액션. 한 사람이 같은 메시지에 같은 이모지는 한 번만 단다.
 create table if not exists public.chat_reactions (
   message_id bigint not null references public.chat_messages(id) on delete cascade,
@@ -101,7 +117,7 @@ create table if not exists public.chat_reactions (
 
 -- 2. 권한 판정 헬퍼 -----------------------------------------------------------
 
--- 지금 로그인한 사람이 이 채널을 볼 수 있는가
+-- 지금 로그인한 사람이 이 채널을 볼 수 있는가 (보관된 채널도 읽기는 된다)
 --   public  : 같은 팀이면 누구나
 --   그 외   : 멤버로 등록된 사람만
 create or replace function public.chat_can_access(p_channel uuid)
@@ -115,7 +131,6 @@ as $$
     select 1 from public.chat_channels c
     where c.id = p_channel
       and c.team_id = public.current_team_id()
-      and c.archived_at is null
       and (
         c.kind = 'public'
         or exists (
@@ -124,6 +139,34 @@ as $$
         )
       )
   );
+$$;
+
+-- 이 채널에 쓸 수 있는가 (볼 수 있고, 보관되지 않았다)
+create or replace function public.chat_can_write(p_channel uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.chat_can_access(p_channel)
+     and exists (select 1 from public.chat_channels c where c.id = p_channel and c.archived_at is null);
+$$;
+
+-- 채널 설정(보관)을 바꿀 수 있는가: 만든 사람 또는 팀장
+create or replace function public.chat_can_manage(p_channel uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.chat_can_access(p_channel)
+     and exists (
+       select 1 from public.chat_channels c
+       where c.id = p_channel and c.kind <> 'dm' and not c.is_default
+         and (c.created_by = auth.uid() or public.is_team_leader())
+     );
 $$;
 
 -- Realtime 토픽 이름으로 판정한다. 'chat:<채널 uuid>' 만 통과시키고
@@ -145,8 +188,38 @@ end;
 $$;
 
 
--- 첨부 파일 경로 '<팀 id>/<채널 id>/<파일>' 로 판정한다.
--- 내 팀 폴더이고, 그 채널을 볼 수 있는 사람만 올리고 내려받는다.
+-- 첨부 파일 경로 '<팀 id>/<채널 id>/<파일>' 에서 채널 id 를 꺼낸다. 모양이 다르면 null.
+create or replace function public.chat_file_channel(p_name text)
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_parts text[] := storage.foldername(p_name);
+begin
+  if coalesce(array_length(v_parts, 1), 0) <> 2
+     or v_parts[1] is distinct from public.current_team_id()::text
+     or v_parts[2] !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return null;
+  end if;
+  return v_parts[2]::uuid;
+end;
+$$;
+
+-- 올리기는 그 채널에 쓸 수 있는 사람만 (보관된 채널에는 못 올린다)
+create or replace function public.chat_can_write_file(p_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(public.chat_can_write(public.chat_file_channel(p_name)), false);
+$$;
+
+-- 내 팀 폴더이고, 그 채널을 볼 수 있는 사람만 내려받는다.
 create or replace function public.chat_can_access_file(p_name text)
 returns boolean
 language plpgsql
@@ -173,6 +246,7 @@ alter table public.chat_channels enable row level security;
 alter table public.chat_members  enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.chat_reactions enable row level security;
+alter table public.chat_pins      enable row level security;
 
 drop policy if exists chat_channels_select on public.chat_channels;
 create policy chat_channels_select on public.chat_channels
@@ -197,6 +271,11 @@ create policy chat_reactions_select on public.chat_reactions
     select 1 from public.chat_messages m
     where m.id = message_id and public.chat_can_access(m.channel_id)
   ));
+
+drop policy if exists chat_pins_select on public.chat_pins;
+create policy chat_pins_select on public.chat_pins
+  for select to authenticated
+  using (public.chat_can_access(channel_id));
 
 -- 비공개 Broadcast 채널 구독 권한
 --   chat:<채널 id>      → 그 채널을 볼 수 있는 사람
@@ -235,7 +314,7 @@ create policy chat_files_select on storage.objects
 drop policy if exists chat_files_insert on storage.objects;
 create policy chat_files_insert on storage.objects
   for insert to authenticated
-  with check (bucket_id = 'chat-files' and public.chat_can_access_file(name));
+  with check (bucket_id = 'chat-files' and public.chat_can_write_file(name));
 
 
 -- 4. Broadcast 트리거 ---------------------------------------------------------
@@ -303,6 +382,37 @@ create trigger chat_reactions_broadcast
   after insert or delete on public.chat_reactions
   for each row execute function public.chat_broadcast_reaction();
 
+-- 고정·해제를 채널 토픽으로 알린다
+create or replace function public.chat_broadcast_pin()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r record;
+begin
+  if tg_op = 'DELETE' then
+    r := old;
+  else
+    r := new;
+  end if;
+  perform realtime.send(
+    jsonb_build_object('message_id', r.message_id, 'pinned_by', r.pinned_by,
+                       'pinned_at', r.pinned_at, 'op', lower(tg_op)),
+    'pin',
+    'chat:' || r.channel_id::text,
+    true
+  );
+  return null;
+end;
+$$;
+
+drop trigger if exists chat_pins_broadcast on public.chat_pins;
+create trigger chat_pins_broadcast
+  after insert or delete on public.chat_pins
+  for each row execute function public.chat_broadcast_pin();
+
 -- 채널이 생기면 팀 토픽으로 알린다 (받은 쪽은 채널 목록을 다시 읽는다)
 create or replace function public.chat_broadcast_channel()
 returns trigger
@@ -336,6 +446,7 @@ create trigger chat_channels_broadcast
 --      읽음 포인터는 그 채널의 마지막 메시지로 둔다)
 --   · 채널마다 안 읽은 수와 마지막 메시지 id 를 돌려준다
 --   · 1:1 대화는 내가 멤버인 것만 나오고, dm_user_id 에 상대가 들어 있다
+--   · 내가 나간(숨긴) 채널과 보관된 채널은 빠진다
 -- 돌려주는 열이 바뀌면 create or replace 로는 안 되므로 지우고 다시 만든다.
 drop function if exists public.chat_bootstrap();
 create function public.chat_bootstrap()
@@ -393,7 +504,7 @@ begin
          (select max(m.id) from public.chat_messages m where m.channel_id = c.id)
   from public.chat_channels c
   join public.chat_members cm on cm.channel_id = c.id and cm.user_id = v_uid
-  where c.team_id = v_team and c.archived_at is null
+  where c.team_id = v_team and c.archived_at is null and not cm.hidden
   order by c.is_default desc, c.name;
 end;
 $$;
@@ -448,9 +559,17 @@ begin
 end;
 $$;
 
--- 채널 만들기 (팀원 누구나). 지금 팀원 전원을 멤버로 넣어둔다.
+-- 채널 만들기 (팀원 누구나).
+--   공개   : 지금 팀원 전원을 멤버로 넣는다
+--   비공개 : 만든 사람 + 고른 팀원만 넣는다 (다른 팀원에게는 보이지도 않는다)
 -- 빈 채널이니 읽음 포인터 0 이면 이후 메시지가 모두 '안 읽음'으로 잡힌다.
-create or replace function public.create_chat_channel(p_name text, p_topic text default '')
+drop function if exists public.create_chat_channel(text, text);
+create or replace function public.create_chat_channel(
+  p_name    text,
+  p_topic   text    default '',
+  p_private boolean default false,
+  p_members uuid[]  default null
+)
 returns uuid
 language plpgsql
 security definer
@@ -471,7 +590,8 @@ begin
 
   begin
     insert into public.chat_channels (team_id, kind, name, topic, created_by)
-    values (v_team, 'public', v_name, left(btrim(coalesce(p_topic, '')), 200), v_uid)
+    values (v_team, case when p_private then 'private' else 'public' end,
+            v_name, left(btrim(coalesce(p_topic, '')), 200), v_uid)
     returning id into v_id;
   exception when unique_violation then
     raise exception '이미 있는 채널 이름이야.';
@@ -481,6 +601,9 @@ begin
   select v_id, p.user_id, 0
   from public.profiles p
   where p.team_id = v_team
+    and (not coalesce(p_private, false)
+         or p.user_id = v_uid
+         or p.user_id = any(coalesce(p_members, '{}'::uuid[])))
   on conflict do nothing;
 
   return v_id;
@@ -515,7 +638,7 @@ declare
   v_ok     boolean;
   v_row    public.chat_messages;
 begin
-  if v_uid is null or not public.chat_can_access(p_channel) then
+  if v_uid is null or not public.chat_can_write(p_channel) then
     raise exception '이 채널에 메시지를 보낼 수 없어.';
   end if;
   if jsonb_typeof(coalesce(p_attachments, '[]'::jsonb)) <> 'array'
@@ -595,7 +718,7 @@ declare
 begin
   select * into v_row from public.chat_messages where id = p_id;
   if v_row.id is null or v_row.user_id is distinct from v_uid
-     or v_row.deleted_at is not null or not public.chat_can_access(v_row.channel_id) then
+     or v_row.deleted_at is not null or not public.chat_can_write(v_row.channel_id) then
     raise exception '이 메시지는 고칠 수 없어.';
   end if;
   if char_length(v_body) > 4000
@@ -628,7 +751,7 @@ declare
 begin
   select * into v_row from public.chat_messages where id = p_id;
   if v_row.id is null or v_row.user_id is distinct from v_uid
-     or not public.chat_can_access(v_row.channel_id) then
+     or not public.chat_can_write(v_row.channel_id) then
     raise exception '이 메시지는 지울 수 없어.';
   end if;
   if v_row.deleted_at is not null then
@@ -636,6 +759,7 @@ begin
   end if;
 
   delete from public.chat_reactions where message_id = p_id;
+  delete from public.chat_pins where message_id = p_id;
 
   update public.chat_messages
   set body = '(삭제됨)', attachments = '[]'::jsonb, deleted_at = now()
@@ -664,7 +788,7 @@ declare
   v_emoji text := btrim(coalesce(p_emoji, ''));
   v_ok    boolean;
 begin
-  select public.chat_can_access(m.channel_id) and m.deleted_at is null into v_ok
+  select public.chat_can_write(m.channel_id) and m.deleted_at is null into v_ok
   from public.chat_messages m where m.id = p_message;
   if v_uid is null or not coalesce(v_ok, false) then
     raise exception '이 메시지에는 반응할 수 없어.';
@@ -754,5 +878,220 @@ begin
     )
   order by m.id desc
   limit least(greatest(coalesce(p_limit, 50), 1), 100);
+end;
+$$;
+
+-- 팀 토픽으로 '채널 목록이 바뀌었어' 를 알린다 (멤버 추가·보관 등)
+create or replace function public.chat_notify_team(p_channel uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_team uuid;
+begin
+  select c.team_id into v_team from public.chat_channels c where c.id = p_channel;
+  if v_team is not null then
+    perform realtime.send(jsonb_build_object('id', p_channel), 'channel',
+                          'chat-team:' || v_team::text, true);
+  end if;
+end;
+$$;
+
+-- 채널 찾기 화면용 목록. 내가 볼 수 있는 공개·비공개 채널 전부 (보관된 것 포함, 1:1 제외)
+create or replace function public.list_chat_channels()
+returns table (
+  id           uuid,
+  kind         text,
+  name         text,
+  topic        text,
+  is_default   boolean,
+  created_by   uuid,
+  archived_at  timestamptz,
+  member_count integer,
+  is_member    boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+#variable_conflict use_column
+declare
+  v_uid  uuid := auth.uid();
+  v_team uuid := public.current_team_id();
+begin
+  if v_uid is null or v_team is null then
+    return;
+  end if;
+  return query
+  select c.id, c.kind, c.name, c.topic, c.is_default, c.created_by, c.archived_at,
+         (select count(*)::int from public.chat_members m
+           where m.channel_id = c.id and not m.hidden),
+         exists (select 1 from public.chat_members m
+                  where m.channel_id = c.id and m.user_id = v_uid and not m.hidden)
+  from public.chat_channels c
+  where c.team_id = v_team and c.kind <> 'dm' and public.chat_can_access(c.id)
+  order by c.archived_at nulls first, c.is_default desc, c.name;
+end;
+$$;
+
+-- 채널 멤버 목록 (chat_members 는 RLS 로 내 행만 보이므로 이 함수로 본다)
+create or replace function public.chat_channel_members(p_channel uuid)
+returns table (user_id uuid)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+#variable_conflict use_column
+begin
+  if not public.chat_can_access(p_channel) then
+    return;
+  end if;
+  return query
+  select m.user_id from public.chat_members m
+  where m.channel_id = p_channel and not m.hidden;
+end;
+$$;
+
+-- 공개 채널 참여 (나갔던 채널에 다시 들어올 때). 지난 대화는 읽은 것으로 친다.
+create or replace function public.join_chat_channel(p_channel uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_max bigint;
+begin
+  if v_uid is null or not public.chat_can_write(p_channel)
+     or not exists (select 1 from public.chat_channels c where c.id = p_channel and c.kind = 'public') then
+    raise exception '이 채널에는 참여할 수 없어.';
+  end if;
+
+  select coalesce(max(id), 0) into v_max from public.chat_messages where channel_id = p_channel;
+
+  insert into public.chat_members (channel_id, user_id, last_read_id, hidden)
+  values (p_channel, v_uid, v_max, false)
+  on conflict (channel_id, user_id)
+  do update set hidden = false,
+                last_read_id = greatest(public.chat_members.last_read_id, excluded.last_read_id);
+end;
+$$;
+
+-- 채널 나가기. 기본 채널과 1:1 대화는 나갈 수 없다.
+--   공개   : 숨김 (채널 찾기에서 다시 참여할 수 있다)
+--   비공개 : 멤버에서 빠진다 (다시 초대받아야 들어온다). 마지막 사람이 나가면 보관한다.
+create or replace function public.leave_chat_channel(p_channel uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid  uuid := auth.uid();
+  v_kind text;
+  v_def  boolean;
+begin
+  select c.kind, c.is_default into v_kind, v_def
+  from public.chat_channels c where c.id = p_channel;
+
+  if v_uid is null or v_kind is null or not public.chat_can_access(p_channel) then
+    raise exception '이 채널에서 나갈 수 없어.';
+  end if;
+  if v_def or v_kind = 'dm' then
+    raise exception '기본 채널과 1:1 대화는 나갈 수 없어.';
+  end if;
+
+  if v_kind = 'public' then
+    update public.chat_members set hidden = true
+    where channel_id = p_channel and user_id = v_uid;
+  else
+    delete from public.chat_members where channel_id = p_channel and user_id = v_uid;
+    if not exists (select 1 from public.chat_members where channel_id = p_channel) then
+      update public.chat_channels set archived_at = now() where id = p_channel;
+    end if;
+    perform public.chat_notify_team(p_channel);
+  end if;
+end;
+$$;
+
+-- 비공개 채널에 팀원 초대. 그 채널 멤버라면 누구나 초대할 수 있다 (슬랙과 같다).
+create or replace function public.add_chat_members(p_channel uuid, p_users uuid[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid   uuid := auth.uid();
+  v_team  uuid := public.current_team_id();
+  v_count integer;
+begin
+  if v_uid is null or not public.chat_can_write(p_channel)
+     or not exists (select 1 from public.chat_channels c where c.id = p_channel and c.kind = 'private') then
+    raise exception '비공개 채널에만 초대할 수 있어.';
+  end if;
+
+  insert into public.chat_members (channel_id, user_id, last_read_id)
+  select p_channel, p.user_id, 0
+  from public.profiles p
+  where p.team_id = v_team and p.user_id = any(coalesce(p_users, '{}'::uuid[]))
+  on conflict do nothing;
+  get diagnostics v_count = row_count;
+
+  perform public.chat_notify_team(p_channel);
+  return v_count;
+end;
+$$;
+
+-- 채널 보관 / 보관 해제. 만든 사람 또는 팀장만. 보관되면 읽기만 된다.
+create or replace function public.archive_chat_channel(p_channel uuid, p_archive boolean default true)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.chat_can_manage(p_channel) then
+    raise exception '채널을 만든 사람이나 팀장만 보관할 수 있어.';
+  end if;
+  update public.chat_channels
+  set archived_at = case when p_archive then now() else null end
+  where id = p_channel;
+  perform public.chat_notify_team(p_channel);
+end;
+$$;
+
+-- 메시지 고정 / 해제. 그 채널에 쓸 수 있는 사람 누구나. 고정했으면 true.
+create or replace function public.toggle_chat_pin(p_message bigint)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_channel uuid;
+  v_deleted timestamptz;
+begin
+  select m.channel_id, m.deleted_at into v_channel, v_deleted
+  from public.chat_messages m where m.id = p_message;
+
+  if v_channel is null or v_deleted is not null or not public.chat_can_write(v_channel) then
+    raise exception '이 메시지는 고정할 수 없어.';
+  end if;
+
+  delete from public.chat_pins where message_id = p_message;
+  if found then
+    return false;
+  end if;
+
+  insert into public.chat_pins (message_id, channel_id, pinned_by)
+  values (p_message, v_channel, auth.uid())
+  on conflict do nothing;
+  return true;
 end;
 $$;

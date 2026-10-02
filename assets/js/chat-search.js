@@ -13,23 +13,6 @@ const CHAT_JUMP_MAX_PAGES=20;   // 50건씩 최대 20번(1000건)까지 거슬�
 
 let chatSearchState={query:"",results:[],loading:false};
 
-function isChatSearchOpen(){
-  return !$("chatSearch").hidden;
-}
-
-function openChatSearchPanel(){
-  closeChatThread();
-  $("chatSearch").hidden=false;
-  document.querySelector(".chat-layout")?.classList.add("side-open");
-}
-
-function closeChatSearch(){
-  chatSearchState={query:"",results:[],loading:false};
-  const panel=$("chatSearch");
-  if(panel) panel.hidden=true;
-  if(!isChatThreadOpen()) document.querySelector(".chat-layout")?.classList.remove("side-open");
-}
-
 async function runChatSearch(){
   const query=$("chatSearchInput").value.trim();
   if(query.length<2){
@@ -37,16 +20,16 @@ async function runChatSearch(){
     return;
   }
 
-  openChatSearchPanel();
+  openChatSide("search","검색");
   chatSearchState={query,results:[],loading:true};
   renderChatSearch();
 
   const {data,error}=await teamCloud.client.rpc("search_chat_messages",{p_query:query,p_limit:CHAT_SEARCH_LIMIT});
-  if(chatSearchState.query!==query) return;   // 그 사이 다른 검색어로 바뀌었다
+  if(chatSearchState.query!==query || !isChatSideOpen("search")) return;   // 그 사이 바뀌었다
   chatSearchState.loading=false;
   if(error){
     console.error(error);
-    $("chatSearchList").innerHTML='<div class="empty chat-empty">검색하지 못했어.</div>';
+    $("chatSideList").innerHTML='<div class="empty chat-empty">검색하지 못했어.</div>';
     return;
   }
   chatSearchState.results=(data||[]).map(r=>({...r,id:Number(r.id),parent_id:r.parent_id ? Number(r.parent_id) : null}));
@@ -70,9 +53,9 @@ function chatSearchSnippet(body,query){
 }
 
 function renderChatSearch(){
-  const box=$("chatSearchList");
+  const box=$("chatSideList");
   const {query,results,loading}=chatSearchState;
-  $("chatSearchTitle").textContent=query ? `"${query}" 검색` : "검색";
+  setChatSideTitle(query ? `"${query}" 검색` : "검색");
 
   if(loading){
     box.innerHTML='<div class="empty chat-empty">찾는 중이야.</div>';
@@ -156,7 +139,7 @@ async function jumpToChatMessage(target){
 $("chatSearchInput").addEventListener("keydown",e=>{
   if(e.key==="Escape"){
     e.target.value="";
-    closeChatSearch();
+    if(isChatSideOpen("search")) closeChatSide();
     return;
   }
   if(e.key!=="Enter" || e.isComposing || e.keyCode===229) return;
@@ -164,9 +147,8 @@ $("chatSearchInput").addEventListener("keydown",e=>{
   runChatSearch();
 });
 
-$("chatSearchClose").addEventListener("click",closeChatSearch);
-
-$("chatSearchList").addEventListener("click",e=>{
+$("chatSideList").addEventListener("click",e=>{
+  if(!isChatSideOpen("search")) return;
   const item=e.target.closest("[data-search-idx]");
   if(!item) return;
   const hit=chatSearchState.results[Number(item.dataset.searchIdx)];

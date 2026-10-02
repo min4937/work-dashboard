@@ -663,11 +663,16 @@
             <input type="search" class="chat-search-input" id="chatSearchInput" maxlength="100" placeholder="🔍 메시지 검색 (Enter)">
             <div class="chat-sidebar-head">
               <span>채널</span>
-              <button type="button" class="chat-add-btn" id="chatAddChannelBtn" title="채널 추가">+</button>
+              <span class="chat-sidebar-btns">
+                <button type="button" class="chat-add-btn" id="chatBrowseBtn" title="채널 찾기 · 나간 채널 다시 참여 · 보관된 채널">☰</button>
+                <button type="button" class="chat-add-btn" id="chatAddChannelBtn" title="채널 만들기">+</button>
+              </span>
             </div>
             <div class="chat-channel-form" id="chatChannelForm" hidden>
               <input id="chatChannelNameInput" type="text" maxlength="30" placeholder="채널 이름 (예: 프로젝트A)">
               <input id="chatChannelTopicInput" type="text" maxlength="200" placeholder="설명 (선택)">
+              <label class="chat-private-toggle"><input type="checkbox" id="chatChannelPrivate"> 🔒 비공개 (고른 팀원만)</label>
+              <div class="chat-member-picks" id="chatChannelMembers" hidden></div>
               <div class="chat-channel-form-actions">
                 <button type="button" class="mini-btn" id="chatChannelCancel">취소</button>
                 <button type="button" class="btn primary" id="chatChannelCreate">만들기</button>
@@ -689,7 +694,11 @@
                 <div class="chat-title" id="chatChannelTitle"></div>
                 <div class="chat-topic" id="chatChannelTopic"></div>
               </div>
-              <button type="button" class="chat-notify-btn" id="chatNotifyBtn">🔕 알림 꺼짐</button>
+              <div class="chat-head-actions">
+                <button type="button" class="chat-notify-btn" id="chatPinsBtn" title="고정된 메시지">📌 0</button>
+                <button type="button" class="chat-notify-btn" id="chatInfoBtn" title="멤버 · 초대 · 나가기 · 보관">ⓘ 정보</button>
+                <button type="button" class="chat-notify-btn" id="chatNotifyBtn">🔕 알림 꺼짐</button>
+              </div>
             </div>
             <div class="chat-list" id="chatMessageList"></div>
             <button type="button" class="chat-jump" id="chatJumpBtn" hidden>새 메시지 ↓</button>
@@ -723,12 +732,13 @@
             <div class="chat-notice" id="chatThreadNotice"></div>
           </aside>
 
-          <aside class="chat-thread chat-search" id="chatSearch" hidden>
+          <!-- 검색 · 고정 · 채널 정보 · 채널 찾기가 번갈아 쓰는 오른쪽 패널 -->
+          <aside class="chat-thread chat-side" id="chatSide" hidden>
             <div class="chat-head chat-thread-head">
-              <div class="chat-title" id="chatSearchTitle">검색</div>
-              <button type="button" class="chat-add-btn" id="chatSearchClose" title="닫기">×</button>
+              <div class="chat-title" id="chatSideTitle"></div>
+              <button type="button" class="chat-add-btn" id="chatSideClose" title="닫기">×</button>
             </div>
-            <div class="chat-list" id="chatSearchList"></div>
+            <div class="chat-list" id="chatSideList"></div>
           </aside>
         </div>
       </section>
@@ -1064,6 +1074,8 @@
 <script src="./assets/js/chat-typing.js"></script>
 <script src="./assets/js/chat-notify.js"></script>
 <script src="./assets/js/chat-search.js"></script>
+<script src="./assets/js/chat-pins.js"></script>
+<script src="./assets/js/chat-channels.js"></script>
 <script src="./assets/js/cloud.js"></script>
 <script src="./assets/js/auth.js"></script>
 <script src="./assets/js/sync.js"></script>

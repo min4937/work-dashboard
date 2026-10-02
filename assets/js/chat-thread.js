@@ -33,7 +33,7 @@ async function openChatThread(parentId){
   if(!parent) return;
 
   // 오른쪽 자리는 스레드와 검색이 나눠 쓴다
-  if(isChatSearchOpen()) closeChatSearch();
+  if(isChatSideOpen()) closeChatSide();
   if(chatThread.parentId!==parentId) clearChatDrafts("thread");
   chatThread={parentId,channelId:parent.channel_id,replies:[],loading:true};
   $("chatThread").hidden=false;
@@ -68,7 +68,7 @@ function closeChatThread(){
   clearChatDrafts("thread");
   const panel=$("chatThread");
   if(panel) panel.hidden=true;
-  if(!isChatSearchOpen()) document.querySelector(".chat-layout")?.classList.remove("side-open");
+  if(!isChatSideOpen()) document.querySelector(".chat-layout")?.classList.remove("side-open");
 }
 
 /* id 순서로 끼워 넣고, 이미 있는 답글은 덮어쓴다(수정·삭제). */
@@ -143,8 +143,12 @@ function renderChatThread({stickToBottom=false}={}){
   restoreChatEditFocus(wasEditing);
 
   const input=$("chatThreadInput");
-  input.disabled=!!parent.deleted_at;
-  input.placeholder=parent.deleted_at ? "지운 메시지에는 답글을 달 수 없어." : "답글 보내기";
+  const archived=!!channel?.archived;
+  input.disabled=!!parent.deleted_at || archived;
+  $("chatThreadAttachBtn").disabled=input.disabled;
+  $("chatThreadSendBtn").disabled=input.disabled;
+  input.placeholder=archived ? "보관된 채널이라 읽기만 할 수 있어."
+    : parent.deleted_at ? "지운 메시지에는 답글을 달 수 없어." : "답글 보내기";
 }
 
 async function sendChatReply(){

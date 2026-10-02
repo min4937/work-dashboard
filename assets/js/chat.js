@@ -4,6 +4,7 @@
      chat-thread.js   스레드 패널          chat-mention.js  @멘션 자동완성
      chat-files.js    파일 첨부            chat-typing.js   입력 중 표시
      chat-notify.js   데스크톱 알림        chat-search.js   검색 · 메시지로 이동
+     chat-pins.js     메시지 고정          chat-channels.js 채널 찾기 · 정보 · 나가기 · 보관 · 초대
 
    1:1 대화도 kind='dm' 인 채널일 뿐이라 보내기·받기·읽음은 채널과 똑같이 돈다.
    다른 점은 멤버가 두 사람뿐이고, 이름 대신 상대 이름을 보여준다는 것.
@@ -46,6 +47,8 @@ function emptyChatState(){
     creating:false,
     openingDm:false,
     reactions:new Map(),    // 메시지 id → Map(이모지 → Set(사람 id))
+    pins:new Map(),         // 채널 id → Map(메시지 id → {pinned_by,pinned_at})
+    archivedView:null,      // 채널 찾기에서 열어본 보관 채널 (목록에 잠깐 끼워 둔다)
     editingId:null,         // 지금 고치고 있는 메시지 id
     editDraft:""
   };
@@ -83,7 +86,7 @@ function stopChat(){
   clearTimeout(chat.readTimer);
   clearTimeout(chat.refreshTimer);
   closeChatThread();
-  closeChatSearch();
+  closeChatSide();
   closeChatReactionPicker();
   clearChatDrafts("main");
   clearChatDrafts("thread");
@@ -111,6 +114,12 @@ async function refreshChatChannels(){
     unread_count:Number(c.unread_count||0),
     last_message_id:Number(c.last_message_id||0)
   }));
+
+  // 열어본 보관 채널은 목록에 없으니 다시 끼워 둔다 (보관이 풀려 목록에 돌아왔으면 놓아준다)
+  if(chat.archivedView){
+    if(chat.channels.some(c=>c.id===chat.archivedView.id)) chat.archivedView=null;
+    else chat.channels.push(chat.archivedView);
+  }
 
   if(!chat.channels.some(c=>c.id===chat.activeId)){
     const first=chat.channels[0]||null;
@@ -157,6 +166,7 @@ function syncChatSubscriptions(){
       .on("broadcast",{event:"message"},({payload})=>onChatMessage(payload))
       .on("broadcast",{event:"reaction"},({payload})=>onChatReaction(payload))
       .on("broadcast",{event:"typing"},({payload})=>onChatTyping(id,payload))
+      .on("broadcast",{event:"pin"},({payload})=>onChatPin(id,payload))
       .subscribe(status=>{
         if(status!=="SUBSCRIBED") return;
         // 첫 구독은 방금 목록을 읽었으니 넘어간다. 그 뒤의 SUBSCRIBED 는 끊겼다 다시 붙은 것이다.
@@ -271,6 +281,7 @@ async function fetchChatMessages(channelId,beforeId=null){
 
 /* 처음 열 때: 최근 50건 */
 async function loadInitialChatMessages(channelId){
+  loadChatPins(channelId);
   const rows=await fetchChatMessages(channelId);
   chat.messages.set(channelId,rows);
   chat.hasMore.set(channelId,rows.length===CHAT_PAGE_SIZE);
@@ -596,6 +607,39 @@ function showChatJump(show){
 }
 
 
+/* ------------------------------------------------------------ 오른쪽 패널 (공용)
+
+   스레드는 chat-thread.js 의 전용 패널을 쓰고, 나머지(검색·고정·채널 정보·채널 찾기)는
+   이 패널 하나를 번갈아 쓴다. 두 패널은 동시에 열리지 않는다.
+   ---------------------------------------------------------------------------- */
+
+let chatSideKind=null;
+
+function openChatSide(kind,title){
+  closeChatThread();
+  chatSideKind=kind;
+  $("chatSide").hidden=false;
+  $("chatSideTitle").textContent=title;
+  document.querySelector(".chat-layout")?.classList.add("side-open");
+}
+
+function closeChatSide(){
+  chatSideKind=null;
+  const panel=$("chatSide");
+  if(panel) panel.hidden=true;
+  if(!isChatThreadOpen()) document.querySelector(".chat-layout")?.classList.remove("side-open");
+}
+
+/* kind 를 주면 그 패널이 열려 있는가, 안 주면 뭐든 열려 있는가 */
+function isChatSideOpen(kind){
+  return kind ? chatSideKind===kind : chatSideKind!==null;
+}
+
+function setChatSideTitle(title){
+  $("chatSideTitle").textContent=title;
+}
+
+
 /* --------------------------------------------------------------------- 화면 */
 
 function setChatNotice(text,isError=false){
@@ -625,8 +669,9 @@ async function renderChatPage({stickToBottom=false}={}){
 
   const channel=chatChannel(chat.activeId);
   renderChatHeader(channel);
-  $("chatInput").disabled=!channel;
-  $("chatSendBtn").disabled=!channel;
+  const readOnly=!channel || !!channel.archived;
+  ["chatInput","chatSendBtn","chatAttachBtn"].forEach(id=>{ $(id).disabled=readOnly; });
+  if(channel?.archived) $("chatInput").placeholder="보관된 채널이라 읽기만 할 수 있어.";
   if(!channel){
     $("chatMessageList").innerHTML='<div class="empty chat-empty">채널을 불러오는 중이야.</div>';
     return;
@@ -649,6 +694,7 @@ async function renderChatPage({stickToBottom=false}={}){
   renderChatMessages({stickToBottom:fresh || stickToBottom});
   renderChatTyping();
   renderChatNotifyButton();
+  renderChatPinsButton();
   if(isChatListAtBottom()) markChatReadSoon();
 }
 
@@ -656,9 +702,14 @@ function openChatChannel(id){
   if(id===chat.activeId) return;
   const channel=chatChannel(id);
   if(!channel) return;
+  if(chat.archivedView && chat.archivedView.id!==id){
+    chat.channels=chat.channels.filter(c=>c!==chat.archivedView);
+    chat.archivedView=null;
+  }
   chat.activeId=id;
   chat.editingId=null;
   closeChatThread();
+  if(isChatSideOpen("pins") || isChatSideOpen("info")) closeChatSide();   // 이전 채널 내용이라
   clearChatDrafts("main");   // 올린 경로가 이전 채널 폴더라 다른 채널로 보낼 수 없다
   // 안 읽은 게 있으면 그 앞에 '새 메시지' 줄을 긋는다
   chat.newSince=channel.unread_count>0 ? channel.last_read_id : null;
@@ -688,9 +739,11 @@ function chatChannelButton(c){
   const cls=["chat-channel-btn"];
   if(c.id===chat.activeId) cls.push("active");
   if(unread) cls.push("unread");
-  const icon=c.kind==="dm" ? chatMemberStatusDot(c.dm_user_id) : '<span class="chat-hash">#</span>';
+  const icon=c.kind==="dm" ? chatMemberStatusDot(c.dm_user_id)
+    : `<span class="chat-hash">${c.kind==="private" ? "🔒" : "#"}</span>`;
   return `<button type="button" class="${cls.join(" ")}" data-channel="${escapeHtml(c.id)}">`+
     `${icon}<span class="chat-channel-name">${escapeHtml(chatChannelLabel(c))}</span>`+
+    `${c.archived ? '<small class="chat-archived-tag">보관됨</small>' : ""}`+
     `${unread ? `<span class="chat-badge">${unread>99?"99+":unread}</span>` : ""}</button>`;
 }
 
@@ -718,7 +771,7 @@ function renderChatHeader(channel){
     $("chatInput").placeholder=`${name}님에게 메시지 보내기`;
     return;
   }
-  $("chatChannelTitle").textContent=channel ? `# ${channel.name}` : "";
+  $("chatChannelTitle").textContent=channel ? `${channel.kind==="private" ? "🔒" : "#"} ${channel.name}` : "";
   $("chatChannelTopic").textContent=channel?.topic||"";
   $("chatInput").placeholder=channel ? `#${channel.name} 에 메시지 보내기` : "";
 }
@@ -809,12 +862,14 @@ function chatReactionsHtml(id){
 
 /* 마우스를 올리면 뜨는 버튼 줄. 전송 중이거나 지운 메시지에는 없다. */
 function chatActionsHtml(m,inThread){
-  if(!m.id || m.deleted_at) return "";
+  if(!m.id || m.deleted_at || chatChannel(m.channel_id)?.archived) return "";
   const mine=m.user_id===teamCloud.user?.id;
+  const pinned=isChatPinned(m);
   const btn=(act,icon,title)=>`<button type="button" data-act="${act}" data-id="${m.id}" title="${title}">${icon}</button>`;
   return `<div class="chat-actions">`+
     btn("react","😊","반응 남기기")+
     (!inThread && !m.parent_id ? btn("thread","💬","스레드로 답글") : "")+
+    btn("pin",pinned ? "📍" : "📌",pinned ? "고정 해제" : "채널에 고정")+
     (mine ? btn("edit","✏️","고치기")+btn("delete","🗑️","삭제") : "")+
     `</div>`;
 }
@@ -826,14 +881,18 @@ function chatMessageHtml(m,{continued=false,inThread=false}={}){
   if(m.pending) cls.push("pending");
   if(m.failed) cls.push("failed");
   if(!m.deleted_at && chatMentionsMe(m)) cls.push("mention");
+  const pinned=isChatPinned(m);
+  if(pinned) cls.push("pinned");
 
   const name=chatMemberName(m.user_id);
   const time=chatTimeLabel(m.created_at);
   const gutter=continued
     ? `<span class="chat-gutter-time">${time}</span>`
     : `<span class="chat-avatar" style="background:${chatAvatarColor(m.user_id)}">${escapeHtml(name.slice(0,1))}</span>`;
-  const head=continued ? "" :
-    `<div class="chat-meta"><span class="chat-name">${escapeHtml(name)}</span><span class="chat-time">${time}</span></div>`;
+  const pinTag=pinned ? '<span class="chat-pin-tag">📌 고정됨</span>' : "";
+  const head=continued
+    ? (pinned ? `<div class="chat-meta">${pinTag}</div>` : "")
+    : `<div class="chat-meta"><span class="chat-name">${escapeHtml(name)}</span><span class="chat-time">${time}</span>${pinTag}</div>`;
 
   // 스레드 원글은 본문 목록에서만, 답글은 스레드에서만 고친다 (입력칸이 두 곳에 생기지 않게)
   const editable=chat.editingId===m.id && (inThread ? !!m.parent_id : !m.parent_id);
@@ -957,8 +1016,24 @@ function toggleChatChannelForm(show){
   if(show){
     $("chatChannelNameInput").value="";
     $("chatChannelTopicInput").value="";
+    $("chatChannelPrivate").checked=false;
+    renderChatChannelMemberPicks();
     $("chatChannelNameInput").focus();
   }
+}
+
+/* 비공개를 고르면 함께 넣을 팀원을 고르는 목록을 보여준다 */
+function renderChatChannelMemberPicks(){
+  const box=$("chatChannelMembers");
+  const on=$("chatChannelPrivate").checked;
+  box.hidden=!on;
+  if(!on) return;
+  const me=teamCloud.user?.id;
+  const others=sortTeamMembers(teamCloud.members).filter(m=>m.user_id!==me);
+  box.innerHTML=others.length
+    ? others.map(m=>`<label class="chat-member-pick"><input type="checkbox" value="${escapeHtml(m.user_id)}">`+
+        `${escapeHtml(m.display_name||"이름 미설정")}<small>${escapeHtml(m.job_title||"")}</small></label>`).join("")
+    : '<div class="chat-side-empty">함께 넣을 팀원이 아직 없어. 나중에 채널 정보에서 초대할 수 있어.</div>';
 }
 
 async function createChatChannel(){
@@ -967,8 +1042,14 @@ async function createChatChannel(){
   const topic=$("chatChannelTopicInput").value.trim();
   if(!name) return;
 
+  const args={p_name:name,p_topic:topic};
+  if($("chatChannelPrivate").checked){
+    args.p_private=true;
+    args.p_members=[...$("chatChannelMembers").querySelectorAll("input:checked")].map(x=>x.value);
+  }
+
   chat.creating=true;
-  const {data:id,error}=await teamCloud.client.rpc("create_chat_channel",{p_name:name,p_topic:topic});
+  const {data:id,error}=await teamCloud.client.rpc("create_chat_channel",args);
   chat.creating=false;
   if(error){
     setChatNotice(error.message||"채널을 만들지 못했어.",true);
@@ -1059,6 +1140,7 @@ function onChatListClick(e){
   if(act.dataset.act==="thread") return openChatThread(id);
   if(act.dataset.act==="edit") return startChatEdit(id);
   if(act.dataset.act==="delete") return deleteChatMessage(id);
+  if(act.dataset.act==="pin") return toggleChatPin(id);
 }
 
 /* 고치는 입력칸: Enter 저장 · Shift+Enter 줄바꿈 · Esc 취소 */
@@ -1122,6 +1204,8 @@ $("chatJumpBtn").addEventListener("click",()=>{
 $("chatAddChannelBtn").addEventListener("click",()=>toggleChatChannelForm($("chatChannelForm").hidden));
 $("chatChannelCancel").addEventListener("click",()=>toggleChatChannelForm(false));
 $("chatChannelCreate").addEventListener("click",createChatChannel);
+$("chatChannelPrivate").addEventListener("change",renderChatChannelMemberPicks);
+$("chatSideClose").addEventListener("click",closeChatSide);
 $("chatChannelNameInput").addEventListener("keydown",e=>{
   if(e.key==="Enter" && !e.isComposing && e.keyCode!==229){
     e.preventDefault();
