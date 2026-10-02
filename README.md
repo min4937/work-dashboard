@@ -22,6 +22,7 @@ assets/
     notice.js            팀 공지사항 (팀장만 작성)
     events.js            달력 중요일정 (개인 / 팀 공유)
     status.js            근무 상태바 (출근/자리비움/외근/퇴근) · 출·퇴근 시각 기록
+    chat.js              팀 채팅 (채널 · 메시지 · 안 읽음 · 실시간)
     cloud.js             Supabase 클라이언트 · 프로필 · 팀 정보
     auth.js              회원가입 · 로그인 · 팀 생성/참여
     sync.js              개인 데이터 양방향 동기화 · 공휴일
@@ -33,6 +34,7 @@ supabase/
   patch-2026-08-calendar-events.sql 기존 프로젝트에 중요일정 테이블 추가
   patch-2026-08-kosis-indicators.sql 기존 프로젝트에 통계 지표 카탈로그 추가
   patch-2026-08-kosis-api-keys.sql   기존 프로젝트에 KOSIS 개인 인증키 보관표 추가
+  patch-2026-10-chat.sql             팀 채팅 표 · RLS · RPC · Broadcast 트리거
   functions/
     kosis-proxy/index.ts  KOSIS OpenAPI 프록시 (CORS 우회)
 ```
@@ -107,6 +109,9 @@ python -m http.server 8000
 | 초대코드 | `team_invites` | **팀장만** | 팀장만 |
 | **급여 · 연차 일수 · 월간기록 · 주간메모** | `user_state` | **본인만** | 본인만 |
 | **KOSIS 인증키** | `kosis_api_keys` | **본인만** | 본인만 |
+| 채팅 채널 · 메시지 | `chat_channels` · `chat_messages` | 같은 팀 전원 | 보내기는 RPC 로만 |
+| 1:1 대화 메시지 | `chat_messages` (kind='dm' 채널) | **대화 당사자 두 명만** | 보내기는 RPC 로만 |
+| 채팅 읽음 위치 | `chat_members` | **본인만** | 본인만 |
 
 월급과 개인 연차 일수(총/사용/잔여)는 `user_state`에 들어 있고 RLS가 본인 행만
 내주므로, 팀장을 포함해 **누구도 남의 것을 볼 수 없다**. 팀장이 보는 연차 정보는
@@ -129,6 +134,43 @@ python -m http.server 8000
 로그인 전에는 이 브라우저(localStorage)에만 저장된다.
 
 > 기존 프로젝트는 `supabase/patch-2026-08-calendar-events.sql`을 한 번 실행해야 한다.
+
+## 팀 채팅
+
+[팀 채팅] 탭. 슬랙처럼 채널별로 대화하고, 안 읽은 수가 채널 옆과 탭 제목에 뜬다.
+팀마다 `#일반` 채널이 자동으로 생기고, 채널은 팀원 누구나 만들 수 있다.
+
+**1:1 대화**는 사이드바 [1:1 대화] 옆 `+`에서 팀원을 고르면 열린다. 두 사람만 보는
+방이며(RLS가 멤버 두 명으로 막는다), 같은 두 사람의 방은 하나만 생긴다. 상대가
+아직 아무 말도 안 한 방은 받는 쪽 목록에 나타나지 않다가 첫 메시지가 오면 뜬다.
+
+### 설정 (관리자, 한 번만)
+
+SQL Editor에 `supabase/patch-2026-10-chat.sql`을 붙여넣고 Run.
+1:1 대화가 추가되기 전에 실행했던 프로젝트도 **한 번 더** 실행한다 (여러 번 실행해도 안전).
+
+> Realtime 설정의 **Allow public access는 켜둔 채로** 둔다. 끄면 공지·상태바·업무일지의
+> 실시간 반영이 멈춘다. 채팅은 비공개(private) 채널로 구독하므로 켜져 있어도
+> `realtime.messages`의 RLS를 거친다.
+
+### 동작 방식
+
+```
+보내기  화면에 먼저 그림(흐리게) → send_chat_message RPC → chat_messages 저장
+        → 트리거가 chat:<채널id> 비공개 Broadcast 로 행을 쏨 → 모든 팀원 화면에 추가
+받기    id 순서 자리에 끼워 넣음. 내 것은 client_id 로 '전송 중' 칸과 맞바꿈
+빈 곳   재접속하거나 탭으로 돌아오면 최근 50건을 DB 에서 다시 읽어 합침
+```
+
+- 진실은 언제나 DB다. Broadcast는 "새 글 왔어" 신호일 뿐이라, 끊긴 사이 놓친 글은
+  다시 읽어서 메운다.
+- 순서는 서버가 매긴 `id`로만 정한다. 도착 순서나 PC 시계는 믿지 않는다.
+- 같은 `client_id`로 다시 보내면 처음 것을 돌려주므로, 전송 실패 후 [다시 보내기]를
+  눌러도 두 번 올라가지 않는다.
+- 안 읽은 수는 `chat_members.last_read_id`(채널별 읽은 위치) 뒤에 있는 남의 메시지 수다.
+  채팅 탭에서 맨 아래까지 보고 있을 때만 읽은 것으로 친다.
+
+조사 자료와 다음 단계(스레드 · 리액션 · 멘션 · 알림)는 `docs/chat-research.md`.
 
 ## 공유 파일 형식
 

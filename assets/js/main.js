@@ -472,6 +472,7 @@ document.querySelectorAll(".top-tab").forEach(btn=>{
     if(pageId==="manualPage") await renderManualPage();
     if(pageId==="statsPage") await renderStatsPage();
     if(pageId==="leavePage" && teamCloud.configured && teamCloud.user) await loadLeaveRequests();
+    if(pageId==="chatPage") await renderChatPage({stickToBottom:true});
 
     if(pageId==="salaryPage" && teamCloud.configured && teamCloud.user){
       const sourceMonth=payrollOvertimeMonth();
@@ -486,7 +487,7 @@ document.querySelectorAll(".top-tab").forEach(btn=>{
 /* ----------------------------------------------------------------- 부팅 */
 
 const lastPage=localStorage.getItem("myCompanyDashboard_lastPage");
-const savedBtn=["schedulePage","dailyLogPage","weeklyLogPage","manualPage","statsPage","salaryPage","leavePage"].includes(lastPage)
+const savedBtn=["schedulePage","dailyLogPage","weeklyLogPage","manualPage","statsPage","salaryPage","leavePage","chatPage"].includes(lastPage)
   ? document.querySelector(`[data-page="${lastPage}"]`)
   : null;
 (savedBtn || document.querySelector('[data-page="schedulePage"]'))?.click();

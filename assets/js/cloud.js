@@ -370,6 +370,7 @@ async function applySignedInState(){
   await refreshTeamMembers();
   await loadTeamNotice();
   subscribeStatusRealtime();
+  await startChat();
   updateSyncUi();
   renderAll();
 }
@@ -415,6 +416,7 @@ async function initTeamCloud(){
     }else{
       unsubscribeStatusRealtime();
       unsubscribeNoticeRealtime();
+      stopChat();
       teamCloud.teamDayLogs=new Map();
       teamCloud.teamLogsMonth="";
       teamCloud.myTimesByDate=new Map();

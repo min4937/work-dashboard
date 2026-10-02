@@ -79,6 +79,7 @@
     <button class="top-tab" data-page="statsPage">통계자료</button>
     <button class="top-tab" data-page="salaryPage">월급</button>
     <button class="top-tab" data-page="leavePage">연차</button>
+    <button class="top-tab" data-page="chatPage">팀 채팅<span class="tab-badge" id="chatTabBadge" hidden></span></button>
   </nav>
 
   <main>
@@ -651,6 +652,53 @@
       </div>
     </section>
 
+    <section class="page-view" id="chatPage">
+      <div class="page-heading"><div><h2>팀 채팅</h2><p>채널별로 팀원과 대화해. Enter 로 보내고 Shift+Enter 로 줄을 바꿔.</p></div></div>
+
+      <div class="shared-lock" id="chatLock">팀 로그인 후 채팅을 쓸 수 있어.</div>
+
+      <section class="panel chat-panel" id="chatLayout" style="display:none">
+        <div class="chat-layout">
+          <aside class="chat-sidebar">
+            <div class="chat-sidebar-head">
+              <span>채널</span>
+              <button type="button" class="chat-add-btn" id="chatAddChannelBtn" title="채널 추가">+</button>
+            </div>
+            <div class="chat-channel-form" id="chatChannelForm" hidden>
+              <input id="chatChannelNameInput" type="text" maxlength="30" placeholder="채널 이름 (예: 프로젝트A)">
+              <input id="chatChannelTopicInput" type="text" maxlength="200" placeholder="설명 (선택)">
+              <div class="chat-channel-form-actions">
+                <button type="button" class="mini-btn" id="chatChannelCancel">취소</button>
+                <button type="button" class="btn primary" id="chatChannelCreate">만들기</button>
+              </div>
+            </div>
+            <div class="chat-channel-list" id="chatChannelList"></div>
+
+            <div class="chat-sidebar-head chat-sidebar-head-dm">
+              <span>1:1 대화</span>
+              <button type="button" class="chat-add-btn" id="chatAddDmBtn" title="1:1 대화 시작">+</button>
+            </div>
+            <div class="chat-dm-picker" id="chatDmPicker" hidden></div>
+            <div class="chat-channel-list" id="chatDmList"></div>
+          </aside>
+
+          <div class="chat-main">
+            <div class="chat-head">
+              <div class="chat-title" id="chatChannelTitle"></div>
+              <div class="chat-topic" id="chatChannelTopic"></div>
+            </div>
+            <div class="chat-list" id="chatMessageList"></div>
+            <button type="button" class="chat-jump" id="chatJumpBtn" hidden>새 메시지 ↓</button>
+            <div class="chat-composer">
+              <textarea id="chatInput" rows="1" maxlength="4000"></textarea>
+              <button type="button" class="btn primary" id="chatSendBtn">보내기</button>
+            </div>
+            <div class="chat-notice" id="chatNotice"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+
   </main>
 
 
@@ -974,6 +1022,7 @@
 <script src="./assets/js/notice.js"></script>
 <script src="./assets/js/events.js"></script>
 <script src="./assets/js/status.js"></script>
+<script src="./assets/js/chat.js"></script>
 <script src="./assets/js/cloud.js"></script>
 <script src="./assets/js/auth.js"></script>
 <script src="./assets/js/sync.js"></script>
