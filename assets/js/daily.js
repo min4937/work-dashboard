@@ -140,24 +140,31 @@ function renderDailyRows(members, logs, editableUserId){
 
 async function loadCloudDaily(){
   if(!teamCloud.client || !teamCloud.user) return;
-  setDailyMessage("팀 업무일지를 불러오는 중...");
+  setDailyMessage("내 업무일지를 불러오는 중...");
+  const myId=teamCloud.user.id;
   const [{data:members,error:memberError},{data:logs,error:logError}] = await Promise.all([
     teamCloud.client.from("profiles").select("user_id,display_name,job_title,sort_order").order("sort_order",{ascending:true}).order("display_name",{ascending:true}),
-    teamCloud.client.from("daily_logs").select("user_id,work_date,morning,afternoon,overtime,start_time,end_time,overtime_hours,work_status,updated_at").eq("work_date",dailyLogDate)
+    teamCloud.client.from("daily_logs").select("user_id,work_date,morning,afternoon,overtime,start_time,end_time,overtime_hours,work_status,updated_at").eq("work_date",dailyLogDate).eq("user_id",myId)
   ]);
 
   if(memberError || logError){
     console.error(memberError||logError);
-    setDailyMessage("팀 업무일지를 불러오지 못했어. Supabase 설정과 권한을 확인해줘.",true);
+    setDailyMessage("업무일지를 불러오지 못했어. Supabase 설정과 권한을 확인해줘.",true);
     return;
   }
+  // teamCloud.members는 채팅 등에서도 쓰므로 팀 전체로 유지하고, 일지 화면에는 내 행만 그린다.
   teamCloud.members=sortTeamMembers(members||[]);
   teamCloud.logs=logs||[];
-  renderDailyRows(teamCloud.members,teamCloud.logs,teamCloud.user.id);
-  const mine=teamCloud.logs.find(x=>x.user_id===teamCloud.user.id);
+  const me=teamCloud.members.find(m=>m.user_id===myId) || {
+    user_id:myId,
+    display_name:(data.settings.userName||"내 업무").trim() || "내 업무",
+    job_title:(data.settings.jobTitle||"").trim()
+  };
+  renderDailyRows([me],teamCloud.logs,myId);
+  const mine=teamCloud.logs.find(x=>x.user_id===myId);
   if($("dailyWorkStatus")) $("dailyWorkStatus").value=normalizeLeaveStatus(mine?.work_status||"정상근무");
   updateDailyOvertimePreview();
-  setDailyMessage(`${teamCloud.members.length}명의 팀 계정과 연결됨`);
+  setDailyMessage("");
   subscribeDailyRealtime();
 }
 
@@ -174,7 +181,11 @@ function subscribeDailyRealtime(){
       schema:"public",
       table:"daily_logs",
       filter:`work_date=eq.${dailyLogDate}`
-    },()=>loadCloudDaily())
+    },payload=>{
+      const row=payload.new?.user_id ? payload.new : payload.old;
+      if(row?.user_id && row.user_id!==teamCloud.user?.id) return;
+      loadCloudDaily();
+    })
     .subscribe();
 }
 
